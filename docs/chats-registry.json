@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "project": "ledgerpulse-platform",
+  "created_at": "2026-11-20",
+  "status": "active",
+  "workspace": "c:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform",
+  "shared_workspace": true,
+  "coordinator_conversation_id": "720c3e28-4bb1-4035-a94a-bd847a462fb4",
+  "chats": [
+    {
+      "code": "00",
+      "role": "coordinator",
+      "title": "00 · Orquestrador & PM (LedgerPulse)",
+      "conversation_id": "720c3e28-4bb1-4035-a94a-bd847a462fb4",
+      "write_ownership": [
+        "docs/STATUS.md",
+        "docs/chats-registry.json",
+        "AGENTS.md"
+      ],
+      "responsibility": "Coordenação diária do roadmap de 42 dias, atualização do STATUS.md, registro de conversation_ids, revisão cruzada e handoffs entre chats."
+    },
+    {
+      "code": "01",
+      "role": "arquiteto-contratos",
+      "title": "01 · Arquiteto de Software & Contratos",
+      "conversation_id": "1f069b0d-7bd8-43f4-ad0b-1c2bd8c4964d",
+      "write_ownership": [
+        "docs/architecture/**",
+        "docs/contracts/**"
+      ],
+      "responsibility": "Arquitetura distribuída, ADRs, modelagem conceitual de dados/Flyway, contratos REST/OpenAPI v1, eventos RabbitMQ e revisão de segurança/performance."
+    },
+    {
+      "code": "02",
+      "role": "dev-backend-ia",
+      "title": "02 · Engenheiro Back-end & IA (Java 21 + Python/FastAPI)",
+      "conversation_id": "8e341ebf-e673-49c9-b074-017c4bbdda1a",
+      "write_ownership": [
+        "services/ledger-core-api/**",
+        "services/risk-engine-ai/**",
+        "services/webhook-dispatcher/**"
+      ],
+      "responsibility": "Implementação de ledger-core-api (Java 21 + Spring Boot 3), risk-engine-ai (Python 3.13 + FastAPI + Scikit-Learn) e webhook-dispatcher (Java 21 + Spring AMQP + Virtual Threads)."
+    },
+    {
+      "code": "03",
+      "role": "dev-frontend-ux",
+      "title": "03 · Engenheiro Front-end & UI/UX (React + TypeScript)",
+      "conversation_id": "8020df47-d8ba-423c-be51-d93304eebe2a",
+      "write_ownership": [
+        "apps/web-console/**"
+      ],
+      "responsibility": "Implementação do console web em React + TypeScript + Vite + Tailwind, Dashboard SSE, Auditoria do Ledger, Central Antifraude, Console DLQ e Simulador de Checkout."
+    },
+    {
+      "code": "04",
+      "role": "devops-qa-guardiao",
+      "title": "04 · DevOps, QA & Guardião de Commits/PRs",
+      "conversation_id": "88754f56-ee9a-4aca-8556-47a905701fbb",
+      "write_ownership": [
+        "infra/**",
+        ".github/**",
+        "docker-compose.yml",
+        ".env.example",
+        "Makefile",
+        "docs/workflow/**",
+        "README.md"
+      ],
+      "responsibility": "Docker Compose, Prometheus/Grafana, pipelines CI no GitHub Actions, scripts Load & Chaos, roteiro diário de Issues/branches/commits semânticos/PRs e posts LinkedIn."
+    }
+  ]
+}
