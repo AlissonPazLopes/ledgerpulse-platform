@@ -1,6 +1,6 @@
 # 🐇 Contrato de Mensageria & Eventos RabbitMQ (`events-rabbitmq.md`)
 
-> **Versão do Contrato:** `v1`  
+> **Versão do Contrato:** `v1.0-frozen`  
 > **Responsável:** Chat 01 (Arquiteto de Software & Contratos)  
 > **Garantia:** Transactional Outbox (*at-least-once* na publicação) + Idempotência por `eventId` no consumidor.
 
@@ -11,13 +11,17 @@
 | Componente | Tipo | Nome Oficial | Função |
 | :--- | :--- | :--- | :--- |
 | **Exchange Principal** | `topic` (durable) | `ledger.events` | Recebe todos os eventos publicados pelo `OutboxRelayWorker` do `ledger-core-api`. |
-| **Exchange de Retry** | `direct` (durable) | `ledger.retry` | Roteia mensagens falhas para filas de atraso com TTL exponencial. |
+| **Exchange de Retry** | `direct` (durable) | `ledger.retry` | Roteia mensagens falhas para as filas de atraso com TTL exponencial (`retry.5s`, `retry.30s`, `retry.120s`). |
 | **Dead-Letter Exchange** | `direct` (durable) | `ledger.dlx` | Encaminha mensagens esgotadas (após 3 retentativas) para a DLQ final. |
-| **Fila Principal de Webhooks** | `queue` (durable) | `ledger.webhooks.dispatch` | Consumida pelo `webhook-dispatcher` (`x-dead-letter-exchange: ledger.retry`). |
-| **Fila Retry 1 (5s)** | `queue` (durable) | `ledger.retry.5s` | `x-message-ttl: 5000`, devolve para `ledger.events` ao expirar. |
-| **Fila Retry 2 (30s)** | `queue` (durable) | `ledger.retry.30s` | `x-message-ttl: 30000`, devolve para `ledger.events` ao expirar. |
-| **Fila Retry 3 (2min)** | `queue` (durable) | `ledger.retry.120s` | `x-message-ttl: 120000`, devolve para `ledger.events` ao expirar. |
+| **Fila Principal de Webhooks** | `queue` (durable) | `ledger.webhooks.dispatch` | Consumida pelo `webhook-dispatcher` (ligada à `ledger.events`). |
+| **Fila Retry 1 (5s)** | `queue` (durable) | `ledger.retry.5s` | `x-message-ttl: 5000`, `x-dead-letter-exchange: ""` e `x-dead-letter-routing-key: ledger.webhooks.dispatch`. |
+| **Fila Retry 2 (30s)** | `queue` (durable) | `ledger.retry.30s` | `x-message-ttl: 30000`, `x-dead-letter-exchange: ""` e `x-dead-letter-routing-key: ledger.webhooks.dispatch`. |
+| **Fila Retry 3 (2min)** | `queue` (durable) | `ledger.retry.120s` | `x-message-ttl: 120000`, `x-dead-letter-exchange: ""` e `x-dead-letter-routing-key: ledger.webhooks.dispatch`. |
 | **Dead-Letter Queue (DLQ)** | `queue` (durable) | `ledger.webhooks.dlq` | Armazena eventos que falharam em todas as tentativas até replay manual via API/UI. |
+
+> **Nota de Escalonamento de Retries (`x-death`) e Retorno Direto:**
+> - **Escalonamento sem loop infinito (`5s → 30s → 120s → DLQ`):** ao falhar na entrega HTTP (`5xx` ou timeout), o consumidor do `webhook-dispatcher` inspeciona o header nativo `x-death` do RabbitMQ (somando `count` de passagens pelas filas de retry) e republica explicitamente na exchange `ledger.retry` com a routing key do próximo degrau (`retry.5s` → `retry.30s` → `retry.120s`), dando `ACK` na mensagem original. Após esgotar a 3ª tentativa (ou em erro permanente `4xx` não recuperável), publica na exchange `ledger.dlx` para estacionar em `ledger.webhooks.dlq`.
+> - **Retorno direto à fila principal:** ao expirar o TTL nas filas `ledger.retry.*`, a mensagem retorna **diretamente** para `ledger.webhooks.dispatch` via *default exchange* (`x-dead-letter-exchange: ""` + `x-dead-letter-routing-key: ledger.webhooks.dispatch`) — e **não** via `ledger.events` — para evitar *re-broadcast* acidental caso outros consumidores assinem o topic exchange no futuro.
 
 ---
 
@@ -27,13 +31,13 @@
 flowchart LR
     PUB["ledger.events (Topic)"] --> MAIN["ledger.webhooks.dispatch"]
     MAIN -->|"HTTP 2xx"| OK["Entrega Confirmada (DELIVERED)"]
-    MAIN -->|"Falha #1 -> Retry 5s"| R1["ledger.retry.5s (TTL 5s)"]
-    R1 -->|"TTL expira"| MAIN
-    MAIN -->|"Falha #2 -> Retry 30s"| R2["ledger.retry.30s (TTL 30s)"]
-    R2 -->|"TTL expira"| MAIN
-    MAIN -->|"Falha #3 -> Retry 120s"| R3["ledger.retry.120s (TTL 120s)"]
-    R3 -->|"TTL expira"| MAIN
-    MAIN -->|"Falha #4 (Exausto)"| DLQ["ledger.webhooks.dlq"]
+    MAIN -->|"Falha #1 (x-death=0) -> retry.5s"| R1["ledger.retry.5s (TTL 5s)"]
+    R1 -->|"Retorno direto (default exchange)"| MAIN
+    MAIN -->|"Falha #2 (x-death=1) -> retry.30s"| R2["ledger.retry.30s (TTL 30s)"]
+    R2 -->|"Retorno direto (default exchange)"| MAIN
+    MAIN -->|"Falha #3 (x-death=2) -> retry.120s"| R3["ledger.retry.120s (TTL 120s)"]
+    R3 -->|"Retorno direto (default exchange)"| MAIN
+    MAIN -->|"Falha #4 (Exausto -> ledger.dlx)"| DLQ["ledger.webhooks.dlq"]
     DLQ -->|"Replay Manual"| MAIN
 ```
 
