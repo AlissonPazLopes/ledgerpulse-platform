@@ -1,0 +1,55 @@
+server:
+  port: ${CORE_API_PORT:8080}
+
+spring:
+  application:
+    name: ledger-core-api
+  profiles:
+    default: dev
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ledgerpulse}
+    username: ${POSTGRES_USER:ledgerpulse}
+    password: ${POSTGRES_PASSWORD:ledgerpulse_dev}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    schemas: ledger_core
+    default-schema: ledger_core
+    create-schemas: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: ledger_core
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      repositories:
+        enabled: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  version: "0.1.0"
+  security:
+    jwt:
+      secret: ${LEDGERPULSE_JWT_SECRET:ledgerpulse-dev-jwt-secret-key-at-least-32-bytes-long-2026}
+      expiration-seconds: 3600
+
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-}]"
