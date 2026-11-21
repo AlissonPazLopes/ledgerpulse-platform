@@ -45,7 +45,7 @@ jobs:
           cache-dependency-path: services/ledger-core-api/pom.xml
 
       - name: Run Maven tests
-        run: mvn -B test
+        run: mvn -B verify
 
   web-console:
     name: Typecheck & Build web-console (Node 24)
