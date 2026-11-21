@@ -1,6 +1,8 @@
 package dev.ledgerpulse.core.web;
 
 import dev.ledgerpulse.core.auth.service.InvalidCredentialsException;
+import dev.ledgerpulse.core.idempotency.IdempotencyConflictException;
+import jakarta.persistence.OptimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -10,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -70,6 +73,21 @@ public class GlobalExceptionHandler {
                 "Um ou mais parâmetros da requisição são inválidos.",
                 request,
                 errors
+        );
+    }
+
+    @ExceptionHandler(DomainValidationException.class)
+    public ResponseEntity<ProblemDetail> handleDomainValidation(
+            DomainValidationException ex,
+            HttpServletRequest request
+    ) {
+        return respond(
+                HttpStatus.BAD_REQUEST,
+                "validation-error",
+                "Validation Error",
+                ex.getMessage(),
+                request,
+                ex.getErrors()
         );
     }
 
@@ -137,16 +155,49 @@ public class GlobalExceptionHandler {
         );
     }
 
-    @ExceptionHandler(NoResourceFoundException.class)
+    @ExceptionHandler({NoResourceFoundException.class, ResourceNotFoundException.class})
     public ResponseEntity<ProblemDetail> handleNotFound(
-            NoResourceFoundException ex,
+            Exception ex,
             HttpServletRequest request
     ) {
+        String detail = ex instanceof ResourceNotFoundException
+                ? ex.getMessage()
+                : "Recurso solicitado não foi encontrado.";
         return respond(
                 HttpStatus.NOT_FOUND,
                 "resource-not-found",
                 "Resource Not Found",
-                "Recurso solicitado não foi encontrado.",
+                detail,
+                request,
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ProblemDetail> handleIdempotencyConflict(
+            IdempotencyConflictException ex,
+            HttpServletRequest request
+    ) {
+        return respond(
+                HttpStatus.CONFLICT,
+                "idempotency-conflict",
+                "Idempotency Key Conflict",
+                ex.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockException.class})
+    public ResponseEntity<ProblemDetail> handleOptimisticLockConflict(
+            Exception ex,
+            HttpServletRequest request
+    ) {
+        return respond(
+                HttpStatus.CONFLICT,
+                "optimistic-lock-conflict",
+                "Optimistic Lock Conflict",
+                "Conflito de concorrência otimista ao atualizar saldo ou registro.",
                 request,
                 List.of()
         );
