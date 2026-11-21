@@ -29,6 +29,11 @@ spring:
       port: ${REDIS_PORT:6379}
       repositories:
         enabled: false
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:${RABBITMQ_AMQP_PORT:5672}}
+    username: ${RABBITMQ_USERNAME:${RABBITMQ_DEFAULT_USER:ledgerpulse}}
+    password: ${RABBITMQ_PASSWORD:${RABBITMQ_DEFAULT_PASS:ledgerpulse_dev}}
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -49,6 +54,15 @@ app:
     jwt:
       secret: ${LEDGERPULSE_JWT_SECRET:ledgerpulse-dev-jwt-secret-key-at-least-32-bytes-long-2026}
       expiration-seconds: 3600
+  idempotency:
+    store: ${LEDGERPULSE_IDEMPOTENCY_STORE:redis}
+    ttl-hours: 24
+  outbox:
+    exchange: ledger.events
+    relay:
+      enabled: true
+      fixed-delay-ms: 2000
+      max-attempts: 5
 
 logging:
   pattern:
