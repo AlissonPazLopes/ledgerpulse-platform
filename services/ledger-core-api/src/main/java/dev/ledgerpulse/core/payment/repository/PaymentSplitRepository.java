@@ -1,0 +1,15 @@
+package dev.ledgerpulse.core.payment.repository;
+
+import dev.ledgerpulse.core.payment.domain.PaymentSplit;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+
+public interface PaymentSplitRepository extends JpaRepository<PaymentSplit, UUID> {
+
+    List<PaymentSplit> findByPaymentIdOrderByCreatedAtAscIdAsc(UUID paymentId);
+
+    List<PaymentSplit> findByPaymentIdInOrderByCreatedAtAscIdAsc(Collection<UUID> paymentIds);
+}
