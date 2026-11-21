@@ -1,5 +1,9 @@
 export type SupportedCurrency = 'BRL' | 'USD';
 
+export function parseSupportedCurrency(currency?: string): SupportedCurrency {
+  return currency === 'USD' ? 'USD' : 'BRL';
+}
+
 const CURRENCY_LOCALE_MAP: Record<SupportedCurrency, string> = {
   BRL: 'pt-BR',
   USD: 'en-US',
