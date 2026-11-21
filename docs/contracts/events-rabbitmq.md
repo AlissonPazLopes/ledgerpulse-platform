@@ -82,6 +82,18 @@ Todo evento gravado em `outbox_events` e enviado para `ledger.events` deve obede
 }
 ```
 
+### Conexão Transactional Outbox (`ledger_core.outbox_events` → RabbitMQ)
+Conforme a modelagem `V3` em [01-modelo-dados-v1.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/architecture/01-modelo-dados-v1.md), todo evento é gravado em `ledger_core.outbox_events` na mesma `@Transactional` do domínio e publicado de forma assíncrona pelo `OutboxRelayWorker`:
+- **Mapeamento para o RabbitMQ:**
+  - `outbox_events.id` → `eventId` no envelope JSON (e propriedade AMQP `messageId`).
+  - `outbox_events.event_type` → `routingKey` na exchange `ledger.events` (`payment.created`, `payment.settled`, `payment.declined`, `payment.manual_review_required`, `payment.refunded`, `risk.feedback.recorded`).
+  - `outbox_events.payload_json` → corpo da mensagem AMQP (`application/json`), acompanhado do header `X-Correlation-Id` (originado de `outbox_events.correlation_id`).
+- **Política do `OutboxRelayWorker` (`@Scheduled`):**
+  1. Busca registros com `status = 'PENDING'` ordenados por `created_at ASC`.
+  2. **Sucesso na publicação AMQP:** atualiza `status` para `'PUBLISHED'` e preenche `published_at`.
+  3. **Falha de envio ao broker:** incrementa `attempts` e registra a mensagem de erro em `last_error`, mantendo `'PENDING'` para retentativa no próximo ciclo.
+  4. **Limite esgotado:** ao atingir o máximo de tentativas configurado (ex.: `5`), transiciona `status` para `'FAILED'` para evitar travamento da fila de relay.
+
 ### Regras de Consumidor Idempotente (`webhook-dispatcher`)
 1. Ao receber mensagem da fila, verificar na tabela `webhook_deliveries` se `(eventId, endpointId)` já possui registro `DELIVERED`.
 2. Calcular assinatura HMAC-SHA256 sobre `timestamp + "." + rawJsonBody` usando o `secret` do endpoint cadastrado.
