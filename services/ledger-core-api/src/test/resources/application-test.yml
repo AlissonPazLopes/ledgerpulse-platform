@@ -29,3 +29,5 @@ app:
   outbox:
     relay:
       enabled: false
+  risk-engine:
+    mode: stub

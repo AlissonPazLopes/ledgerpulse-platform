@@ -63,6 +63,30 @@ app:
       enabled: true
       fixed-delay-ms: 2000
       max-attempts: 5
+  risk-engine:
+    mode: ${LEDGERPULSE_RISK_ENGINE_MODE:http}
+    base-url: ${RISK_ENGINE_URL:http://localhost:8001}
+    connect-timeout-ms: 1000
+    read-timeout-ms: 1500
+
+resilience4j:
+  circuitbreaker:
+    circuitBreakerAspectOrder: 1
+    instances:
+      riskEngine:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 4
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 2
+  retry:
+    retryAspectOrder: 2
+    instances:
+      riskEngine:
+        maxAttempts: 2
+        waitDuration: 100ms
 
 logging:
   pattern:
