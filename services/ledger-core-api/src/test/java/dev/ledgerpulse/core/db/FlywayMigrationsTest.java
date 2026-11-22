@@ -28,13 +28,13 @@ class FlywayMigrationsTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void shouldApplyV1ThroughV3AndCreateAllCoreTables() {
+    void shouldApplyV1ThroughV4AndCreateAllCoreTables() {
         List<String> appliedVersions = Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
                 .map(Object::toString)
                 .toList();
 
-        assertThat(appliedVersions).containsExactly("1", "2", "3");
+        assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
 
         List<String> tables = jdbcTemplate.queryForList(
                 """
@@ -54,7 +54,8 @@ class FlywayMigrationsTest {
                 "ledger_entries",
                 "payments",
                 "payment_splits",
-                "outbox_events"
+                "outbox_events",
+                "risk_review_decisions"
         );
     }
 

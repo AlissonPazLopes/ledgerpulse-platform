@@ -1,8 +1,8 @@
 # 📌 Estado Compartilhado do Projeto (`ledgerpulse-platform`)
 
-> **Atualizado em:** 21/11/2026  
-> **Fase Atual:** `Fase 2 — Semana 2 Concluída (Dias 08–14 · Branch feat/week-2-ledger-outbox com 13 commits pronta para PR #2)`  
-> **Próximo Marco:** **Semana 3 · Dia 15** (`feat/risk-engine-fastapi-bootstrap` — Microsserviço Python `risk-engine-ai` com FastAPI + Pydantic v2 — Chat 02)
+> **Atualizado em:** 22/11/2026  
+> **Fase Atual:** `Fase 3 — Semana 3 Concluída (Dias 15–21 · Branch feat/week-3-risk-engine-resilience com 13 commits pronta para PR #3)`  
+> **Próximo Marco:** **Semana 4 · Dia 22** (`feat/webhook-dispatcher-bootstrap` — Microsserviço Java 21 + Virtual Threads + Spring AMQP `webhook-dispatcher` — Chat 02)
 
 ---
 
@@ -23,7 +23,7 @@
 | :---: | :---: | :--- | :--- | :---: |
 | **Semana 1** | `01–07` | Docker Compose (PG 16, Redis 7, RabbitMQ 3), Contratos OpenAPI/Eventos, Bootstrap `ledger-core-api` (Java 21 + Flyway + Security JWT/API Key), Bootstrap `web-console` (React/TS) e CI inicial | `01`, `02`, `03`, `04` | ✅ Dias 01–07 Implementados (Docker live pendente) |
 | **Semana 2** | `08–14` | Double-Entry Ledger imutável + `@Version`, `Idempotency-Key` Redis, Motor de Split + Máquina de Estados, Transactional Outbox + Relay RabbitMQ, UI Auditoria Ledger + Contas | `01`, `02`, `03`, `04` | ✅ Dias 08–14 Concluídos |
-| **Semana 3** | `15–21` | Microsserviço Python `risk-engine-ai` (FastAPI + Scikit-Learn + `reason_codes`), Integração Resilience4j (Circuit Breaker + Fallback), Fluxo `MANUAL_REVIEW`, Central Antifraude UI | `01`, `02`, `03`, `04` | ⏳ Pendente |
+| **Semana 3** | `15–21` | Microsserviço Python `risk-engine-ai` (FastAPI + Scikit-Learn + `reason_codes`), Integração Resilience4j (Circuit Breaker + Fallback), Fluxo `MANUAL_REVIEW`, Central Antifraude UI | `01`, `02`, `03`, `04` | ✅ Dias 15–21 Concluídos |
 | **Semana 4** | `22–28` | Microsserviço `webhook-dispatcher` (Spring AMQP + Virtual Threads + HMAC-SHA256), Topologia Retry TTL + DLQ + Replay, Webhook Sink, Console DLQ + Simulador Checkout + Teste E2E | `01`, `02`, `03`, `04` | ⏳ Pendente |
 | **Semana 5** | `29–35` | Stream Real-Time via SSE, Estornos compensatórios (`REFUND`), Conciliação `@Scheduled` + CSV, Dashboard Real-Time + Rate Limiting Token Bucket Redis + Revisão Segurança/Índices | `01`, `02`, `03`, `04` | ⏳ Pendente |
 | **Semana 6** | `36–42` | Métricas Prometheus nos 3 serviços, Dashboards Grafana provisionados, Script Load & Chaos Testing, Documentação C4/Postman, Auditoria Docker Clean Run e Release `v1.0.0` | `00`, `01`, `02`, `03`, `04` | ⏳ Pendente |
@@ -40,6 +40,12 @@
 
 ## 4. 🔄 Último Handoff entre Chats
 
+- **22/11/2026 — Semana 3 (Dias 15–21) Consolidada na Branch `feat/week-3-risk-engine-resilience`:**
+  - **Chat 01 (Contract-First S3 & V4):** Congelou payloads da Semana 3 em [api-v1-overview.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/api-v1-overview.md), criou [openapi-risk-engine-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-risk-engine-v1.yaml) e a fixture cruzada [risk-evaluate-contract.json](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/contract-samples/risk-evaluate-contract.json), atualizou [openapi-ledger-core-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-ledger-core-v1.yaml) e documentou `V4__create_risk_review_decisions.sql` em [01-modelo-dados-v1.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/architecture/01-modelo-dados-v1.md).
+  - **Chat 02 (Dias 15–19 & 21):** Implementou `services/risk-engine-ai` (Python 3.13 local / `python:3.12-slim` Docker, FastAPI, Pydantic v2, pipeline `IsolationForest` + `RandomForestClassifier`, artefato `risk_model_v1.joblib`, motor híbrido de regras + ML, `ruff check .` OK, `pytest` `10/10` passando) e integrou no `services/ledger-core-api` o cliente Resilience4j (`CircuitBreaker` + `Retry` + timeout `1.5s` + fallback `MANUAL_REVIEW`), `V4__create_risk_review_decisions.sql`, fluxo `/api/v1/risk/reviews` + decisão `APPROVE`/`DECLINE` com liquidação no Ledger e eventos Outbox, e testes de contrato cruzado (`mvn -B verify`: `50/50` Surefire passando).
+  - **Chat 03 (Dia 20):** Implementou a **Central Antifraude** em `apps/web-console` (`FraudReviewCenterPage`, `RiskScoreGauge`, `ReasonCodeChips`, `ReviewDecisionModal`, `riskReviewService`) validada com `npx tsc --noEmit` e `npm run build` (`1606` módulos, `exit 0`).
+  - **Chat 04 (Dias 15 & 21 Infra/CI):** Adicionou `risk-engine-ai` no `docker-compose.yml` e `.env.example` (`docker compose config --quiet` OK) e o job Python (`ruff` + `pytest`) em `.github/workflows/ci.yml`.
+  - **Git Local:** `13` commits atômicos na branch `feat/week-3-risk-engine-resilience` a partir de `main` (`8ba9a03`), prontos para push e PR #3.
 - **21/11/2026 — Semana 2 (Dias 08–14) Consolidada na Branch `feat/week-2-ledger-outbox`:**
   - **Chat 01 (Alinhamento V3 & Invariantes):** Documentou `V3__create_outbox_events.sql` e regras de partidas dobradas em [01-modelo-dados-v1.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/architecture/01-modelo-dados-v1.md) e [events-rabbitmq.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/events-rabbitmq.md).
   - **Chat 02 (Dias 08–12 & 14):** Implementou em `services/ledger-core-api` as entidades `Account` (`@Version`), `LedgerTransaction`, `LedgerEntry` (append-only, ordenação determinística `DEBIT` antes de `CREDIT`), `LedgerService` + testes multi-thread de concorrência, `IdempotencyService` (Redis/In-Memory + hash SHA-256 + `409`), `Payment`/`PaymentSplit` + `SplitCalculator` + `StubRiskEvaluator`, `V3__create_outbox_events.sql` + `OutboxRelayWorker` (RabbitMQ `ledger.events`) e `LedgerCoreTestcontainersIT` — validado com `mvn -B verify` (`44/44` Surefire passando; `LedgerCoreTestcontainersIT` compilado e pronto para Docker/CI).

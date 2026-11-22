@@ -154,3 +154,41 @@ export interface Payment {
   updatedAt: string;
 }
 
+export interface RiskReviewItem {
+  paymentId: string;
+  merchantId: string;
+  payerId: string;
+  amountCents: number;
+  platformFeeCents: number;
+  netMerchantCents: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  description?: string | null;
+  status: 'MANUAL_REVIEW';
+  riskScore?: number | null;
+  riskDecision?: RiskDecision | null;
+  reasonCodes: string[];
+  correlationId: string;
+  createdAt: string;
+}
+
+export type RiskReviewDecisionType = 'APPROVE' | 'DECLINE';
+
+export interface RiskReviewDecisionRequest {
+  decision: RiskReviewDecisionType;
+  justification: string;
+}
+
+export interface RiskReviewDecisionResponse {
+  decisionId: string;
+  paymentId: string;
+  decision: RiskReviewDecisionType;
+  paymentStatus: 'SETTLED' | 'DECLINED';
+  ledgerTransactionId?: string | null;
+  justification: string;
+  reviewedByUserId: string;
+  reviewedByEmail: string;
+  reviewedAt: string;
+}
+
+

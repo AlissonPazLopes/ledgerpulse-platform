@@ -4,7 +4,7 @@ info:
   version: "1.0.0"
   description: >
     Contrato REST v1 oficial do microsserviço `ledger-core-api` (Java 21 + Spring Boot 3.3+).
-    Congelado para Semanas 1 e 2 no fluxo Contract-First.
+    Congelado para Semanas 1, 2 e 3 no fluxo Contract-First.
     Invariante monetário: todos os valores financeiros são representados em centavos inteiros (`int64`).
 servers:
   - url: http://localhost:8080
@@ -24,6 +24,8 @@ tags:
     description: Consulta auditável ao livro-razão append-only de partidas dobradas
   - name: Payments
     description: Criação, split de marketplace e consulta de pagamentos idempotentes
+  - name: Risk Review
+    description: Fila de revisão manual antifraude e decisão de analistas
 paths:
   /api/v1/health:
     get:
@@ -417,6 +419,96 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/risk/reviews:
+    get:
+      tags:
+        - Risk Review
+      summary: Lista fila paginada de pagamentos em revisão manual antifraude (ANALYST/ADMIN)
+      operationId: listRiskReviews
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/SizeParam"
+        - name: merchantId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: minRiskScore
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 100
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Fila paginada de pagamentos aguardando revisão manual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskReviewPageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/risk/reviews/{paymentId}/decision:
+    post:
+      tags:
+        - Risk Review
+      summary: Registra decisão de analista (APPROVE ou DECLINE) sobre pagamento em MANUAL_REVIEW
+      operationId: submitRiskReviewDecision
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskReviewDecisionRequest"
+      responses:
+        "200":
+          description: Decisão registrada e pagamento liquidado ou recusado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskReviewDecisionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 components:
   securitySchemes:
     bearerAuth:
@@ -1076,6 +1168,158 @@ components:
         totalPages:
           type: integer
           format: int32
+    RiskReviewItem:
+      type: object
+      required:
+        - paymentId
+        - merchantId
+        - payerId
+        - amountCents
+        - platformFeeCents
+        - netMerchantCents
+        - currency
+        - paymentMethod
+        - status
+        - reasonCodes
+        - correlationId
+        - createdAt
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        payerId:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 1
+        platformFeeCents:
+          type: integer
+          format: int64
+          minimum: 0
+        netMerchantCents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          example: BRL
+        paymentMethod:
+          $ref: "#/components/schemas/PaymentMethod"
+        description:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum:
+            - MANUAL_REVIEW
+        riskScore:
+          type:
+            - integer
+            - "null"
+          format: int32
+          minimum: 0
+          maximum: 100
+        riskDecision:
+          oneOf:
+            - $ref: "#/components/schemas/RiskDecision"
+            - type: "null"
+        reasonCodes:
+          type: array
+          items:
+            type: string
+        correlationId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    RiskReviewPageResponse:
+      type: object
+      required:
+        - items
+        - page
+        - size
+        - totalElements
+        - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskReviewItem"
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+    RiskReviewDecisionType:
+      type: string
+      enum:
+        - APPROVE
+        - DECLINE
+    RiskReviewDecisionRequest:
+      type: object
+      required:
+        - decision
+        - justification
+      properties:
+        decision:
+          $ref: "#/components/schemas/RiskReviewDecisionType"
+        justification:
+          type: string
+          minLength: 5
+          maxLength: 500
+    RiskReviewDecisionResponse:
+      type: object
+      required:
+        - decisionId
+        - paymentId
+        - decision
+        - paymentStatus
+        - justification
+        - reviewedByUserId
+        - reviewedByEmail
+        - reviewedAt
+      properties:
+        decisionId:
+          type: string
+          format: uuid
+        paymentId:
+          type: string
+          format: uuid
+        decision:
+          $ref: "#/components/schemas/RiskReviewDecisionType"
+        paymentStatus:
+          type: string
+          enum:
+            - SETTLED
+            - DECLINED
+        ledgerTransactionId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        justification:
+          type: string
+        reviewedByUserId:
+          type: string
+          format: uuid
+        reviewedByEmail:
+          type: string
+          format: email
+        reviewedAt:
+          type: string
+          format: date-time
     ValidationFieldError:
       type: object
       required:

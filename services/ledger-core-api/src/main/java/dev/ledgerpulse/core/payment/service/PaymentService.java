@@ -1,21 +1,11 @@
 package dev.ledgerpulse.core.payment.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ledgerpulse.core.auth.domain.Merchant;
 import dev.ledgerpulse.core.auth.repository.MerchantRepository;
 import dev.ledgerpulse.core.idempotency.IdempotencyService;
 import dev.ledgerpulse.core.ledger.domain.Account;
-import dev.ledgerpulse.core.ledger.domain.AccountStatus;
-import dev.ledgerpulse.core.ledger.domain.AccountType;
-import dev.ledgerpulse.core.ledger.domain.EntryDirection;
-import dev.ledgerpulse.core.ledger.domain.LedgerReferenceType;
 import dev.ledgerpulse.core.ledger.domain.LedgerTransaction;
 import dev.ledgerpulse.core.ledger.repository.AccountRepository;
-import dev.ledgerpulse.core.ledger.service.LedgerPostingCommand;
-import dev.ledgerpulse.core.ledger.service.LedgerService;
-import dev.ledgerpulse.core.outbox.OutboxService;
 import dev.ledgerpulse.core.payment.api.CreatePaymentRequest;
 import dev.ledgerpulse.core.payment.api.PaymentResponse;
 import dev.ledgerpulse.core.payment.api.PaymentSplitRequest;
@@ -43,7 +33,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -53,45 +42,36 @@ import java.util.stream.Collectors;
 @Service
 public class PaymentService {
 
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
-    };
-
     private final MerchantRepository merchantRepository;
     private final AccountRepository accountRepository;
     private final PaymentRepository paymentRepository;
     private final PaymentSplitRepository paymentSplitRepository;
-    private final LedgerService ledgerService;
-    private final OutboxService outboxService;
+    private final PaymentSettlementHelper settlementHelper;
     private final RiskEvaluator riskEvaluator;
     private final SplitCalculator splitCalculator;
     private final IdempotencyService idempotencyService;
     private final TransactionTemplate transactionTemplate;
-    private final ObjectMapper objectMapper;
 
     public PaymentService(
             MerchantRepository merchantRepository,
             AccountRepository accountRepository,
             PaymentRepository paymentRepository,
             PaymentSplitRepository paymentSplitRepository,
-            LedgerService ledgerService,
-            OutboxService outboxService,
+            PaymentSettlementHelper settlementHelper,
             RiskEvaluator riskEvaluator,
             SplitCalculator splitCalculator,
             IdempotencyService idempotencyService,
-            TransactionTemplate transactionTemplate,
-            ObjectMapper objectMapper
+            TransactionTemplate transactionTemplate
     ) {
         this.merchantRepository = merchantRepository;
         this.accountRepository = accountRepository;
         this.paymentRepository = paymentRepository;
         this.paymentSplitRepository = paymentSplitRepository;
-        this.ledgerService = ledgerService;
-        this.outboxService = outboxService;
+        this.settlementHelper = settlementHelper;
         this.riskEvaluator = riskEvaluator;
         this.splitCalculator = splitCalculator;
         this.idempotencyService = idempotencyService;
         this.transactionTemplate = transactionTemplate;
-        this.objectMapper = objectMapper;
     }
 
     public IdempotencyService.IdempotencyExecution<PaymentResponse> createPayment(
@@ -230,11 +210,18 @@ public class PaymentService {
                 request.amountCents(),
                 request.paymentMethod()
         ));
-        payment.recordRiskAssessment(risk.riskScore(), risk.decision(), serializeReasonCodes(risk.reasonCodes()));
+        payment.recordRiskAssessment(
+                risk.riskScore(),
+                risk.decision(),
+                settlementHelper.serializeReasonCodes(risk.reasonCodes())
+        );
 
         if (risk.decision() == RiskDecision.APPROVE) {
             payment.transitionTo(PaymentStatus.AUTHORIZED);
-            LedgerTransaction ledgerTx = postSettlementToLedger(payment, splitResult, correlationId);
+            List<PaymentSettlementHelper.SplitLine> splitLines = splitResult.splits().stream()
+                    .map(s -> new PaymentSettlementHelper.SplitLine(s.recipientAccountId(), s.amountCents()))
+                    .toList();
+            LedgerTransaction ledgerTx = settlementHelper.postSettlement(payment, splitLines, correlationId);
             payment.attachLedgerTransaction(ledgerTx.getId());
             payment.transitionTo(PaymentStatus.SETTLED);
         } else if (risk.decision() == RiskDecision.REVIEW) {
@@ -260,101 +247,8 @@ public class PaymentService {
                                 .toList()
                 );
 
-        recordOutboxEvent(savedPayment, risk.reasonCodes());
+        settlementHelper.recordPaymentOutboxEvent(savedPayment, risk.reasonCodes(), savedPayment.getCorrelationId());
         return toResponse(savedPayment, savedSplits);
-    }
-
-    private LedgerTransaction postSettlementToLedger(
-            Payment payment,
-            SplitCalculator.SplitCalculationResult splitResult,
-            String correlationId
-    ) {
-        Account escrowAccount = accountRepository
-                .findFirstByAccountTypeAndStatusOrderByCreatedAtAsc(AccountType.ESCROW, AccountStatus.ACTIVE)
-                .orElseThrow(() -> new ResourceNotFoundException("Conta sistêmica ESCROW ativa não encontrada."));
-        Account platformFeeAccount = accountRepository
-                .findFirstByAccountTypeAndStatusOrderByCreatedAtAsc(AccountType.PLATFORM_FEE, AccountStatus.ACTIVE)
-                .orElseThrow(() -> new ResourceNotFoundException("Conta sistêmica PLATFORM_FEE ativa não encontrada."));
-        Account merchantAccount = accountRepository
-                .findFirstByMerchantIdAndAccountTypeAndStatusOrderByCreatedAtAsc(
-                        payment.getMerchantId(),
-                        AccountType.MERCHANT,
-                        AccountStatus.ACTIVE
-                )
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Conta MERCHANT ativa não encontrada para merchant: " + payment.getMerchantId()
-                ));
-
-        List<LedgerPostingCommand.LedgerLeg> legs = new ArrayList<>();
-        legs.add(new LedgerPostingCommand.LedgerLeg(
-                escrowAccount.getId(),
-                EntryDirection.DEBIT,
-                payment.getAmountCents()
-        ));
-
-        if (splitResult.platformFeeCents() > 0) {
-            legs.add(new LedgerPostingCommand.LedgerLeg(
-                    platformFeeAccount.getId(),
-                    EntryDirection.CREDIT,
-                    splitResult.platformFeeCents()
-            ));
-        }
-        if (splitResult.netMerchantCents() > 0) {
-            legs.add(new LedgerPostingCommand.LedgerLeg(
-                    merchantAccount.getId(),
-                    EntryDirection.CREDIT,
-                    splitResult.netMerchantCents()
-            ));
-        }
-        for (SplitCalculator.CalculatedSplit split : splitResult.splits()) {
-            legs.add(new LedgerPostingCommand.LedgerLeg(
-                    split.recipientAccountId(),
-                    EntryDirection.CREDIT,
-                    split.amountCents()
-            ));
-        }
-
-        String description = payment.getDescription() != null && !payment.getDescription().isBlank()
-                ? "Liquidação: " + payment.getDescription()
-                : "Liquidação de pagamento com split de marketplace";
-
-        return ledgerService.postTransaction(new LedgerPostingCommand(
-                LedgerReferenceType.PAYMENT_SETTLEMENT,
-                payment.getId(),
-                description,
-                payment.getCurrency(),
-                correlationId,
-                legs
-        ));
-    }
-
-    private void recordOutboxEvent(Payment payment, List<String> reasonCodes) {
-        String eventType = switch (payment.getStatus()) {
-            case SETTLED -> "payment.settled";
-            case MANUAL_REVIEW -> "payment.manual_review_required";
-            case DECLINED -> "payment.declined";
-            default -> "payment.created";
-        };
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("paymentId", payment.getId());
-        payload.put("ledgerTransactionId", payment.getLedgerTransactionId());
-        payload.put("amountCents", payment.getAmountCents());
-        payload.put("platformFeeCents", payment.getPlatformFeeCents());
-        payload.put("netMerchantCents", payment.getNetMerchantCents());
-        payload.put("currency", payment.getCurrency());
-        payload.put("status", payment.getStatus().name());
-        payload.put("riskScore", payment.getRiskScore());
-        payload.put("reasonCodes", reasonCodes);
-
-        outboxService.recordEvent(
-                "PAYMENT",
-                payment.getId(),
-                payment.getMerchantId(),
-                eventType,
-                payment.getCorrelationId(),
-                payload
-        );
     }
 
     private UUID resolveMerchantId(UUID requestedMerchantId, Authentication authentication) {
@@ -368,25 +262,6 @@ public class PaymentService {
             throw new DomainValidationException("merchantId é obrigatório quando autenticado via JWT.");
         }
         return requestedMerchantId;
-    }
-
-    private String serializeReasonCodes(List<String> reasonCodes) {
-        try {
-            return objectMapper.writeValueAsString(reasonCodes == null ? List.of() : reasonCodes);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("Falha ao serializar reasonCodes.", ex);
-        }
-    }
-
-    private List<String> deserializeReasonCodes(String json) {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(json, STRING_LIST_TYPE);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("Falha ao desserializar reasonCodes.", ex);
-        }
     }
 
     private PaymentResponse toResponse(Payment payment, List<PaymentSplit> splits) {
@@ -403,7 +278,7 @@ public class PaymentService {
                 payment.getStatus(),
                 payment.getRiskScore(),
                 payment.getRiskDecision(),
-                deserializeReasonCodes(payment.getReasonCodesJson()),
+                settlementHelper.deserializeReasonCodes(payment.getReasonCodesJson()),
                 payment.getLedgerTransactionId(),
                 payment.getIdempotencyKey(),
                 payment.getCorrelationId(),

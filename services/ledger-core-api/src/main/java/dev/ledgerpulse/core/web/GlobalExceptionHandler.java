@@ -188,6 +188,21 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(InvalidPaymentStateException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidPaymentState(
+            InvalidPaymentStateException ex,
+            HttpServletRequest request
+    ) {
+        return respond(
+                HttpStatus.CONFLICT,
+                "invalid-payment-state",
+                "Invalid Payment State",
+                ex.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
     @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockException.class})
     public ResponseEntity<ProblemDetail> handleOptimisticLockConflict(
             Exception ex,
