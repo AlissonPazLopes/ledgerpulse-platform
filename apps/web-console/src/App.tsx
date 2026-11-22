@@ -3,6 +3,8 @@ import { LayoutShell } from './components/LayoutShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { DashboardPlaceholderPage } from './pages/DashboardPlaceholderPage';
+import { AccountsPage } from './pages/AccountsPage';
+import { LedgerAuditPage } from './pages/LedgerAuditPage';
 import { LoginPage } from './pages/LoginPage';
 import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage';
 
@@ -16,47 +18,8 @@ export function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<LayoutShell />}>
               <Route path="/" element={<DashboardPlaceholderPage />} />
-              <Route
-                path="/ledger"
-                element={
-                  <ModulePlaceholderPage
-                    title="Auditoria do Ledger"
-                    subtitle="Consulta imutável (append-only) às transações contábeis e partidas dobradas DEBIT vs CREDIT com verificação de balanço zerado."
-                    schedule="Semana 2 · Dia 13"
-                    allowedRoles={['ADMIN', 'ANALYST', 'VIEWER']}
-                    endpoints={[
-                      'GET /api/v1/ledger/transactions',
-                      'GET /api/v1/ledger/transactions/{id}',
-                    ]}
-                    highlights={[
-                      'Tabela paginada com filtros por conta, referenceType, referenceId e período.',
-                      'Drawer expansível exibindo todas as entradas DEBIT e CREDIT com balanceAfterCents.',
-                      'Badge de auditoria comprovando totalDebitCents === totalCreditCents.',
-                    ]}
-                  />
-                }
-              />
-              <Route
-                path="/accounts"
-                element={
-                  <ModulePlaceholderPage
-                    title="Contas & Saldos"
-                    subtitle="Gestão de contas financeiras (MERCHANT, RECIPIENT, ESCROW e PLATFORM_FEE) com saldos em centavos inteiros e versão de concorrência otimista."
-                    schedule="Semana 2 · Dia 14"
-                    allowedRoles={['ADMIN']}
-                    endpoints={[
-                      'GET /api/v1/accounts',
-                      'GET /api/v1/accounts/{id}',
-                      'POST /api/v1/accounts',
-                    ]}
-                    highlights={[
-                      'Listagem paginada com availableBalanceCents e pendingBalanceCents.',
-                      'Exibição da versão JPA (@Version) para transparência de Optimistic Locking.',
-                      'Formulário de criação de contas exclusivo para perfil ADMIN.',
-                    ]}
-                  />
-                }
-              />
+              <Route path="/ledger" element={<LedgerAuditPage />} />
+              <Route path="/accounts" element={<AccountsPage />} />
               <Route
                 path="/fraud-review"
                 element={

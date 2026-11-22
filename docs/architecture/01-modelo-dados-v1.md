@@ -1,6 +1,6 @@
 # 🗄️ 01 — Modelagem Conceitual de Dados v1 (`ledger_core`)
 
-> **Versão:** `v1.0-frozen` (Semanas 1 e 2)  
+> **Versão:** `v1.1-frozen` (Semanas 1 e 2 · Inclui Outbox V3 e Invariantes do Ledger)  
 > **Responsável:** Chat 01 (Arquiteto de Software & Contratos)  
 > **Banco Alvo:** PostgreSQL 16 · Database `ledgerpulse` · Schema `ledger_core` (conforme decisão fechada em [STATUS.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/STATUS.md) e [01-create-schemas.sql](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/infra/postgres/init/01-create-schemas.sql))
 
@@ -58,7 +58,7 @@ erDiagram
         varchar reference_type
         uuid reference_id
         varchar correlation_id
-        timestamptz created_at
+        timestamp created_at
     }
     LEDGER_ENTRIES {
         uuid id PK
@@ -67,11 +67,22 @@ erDiagram
         varchar direction
         bigint amount_cents
         bigint balance_after_cents
-        timestamptz created_at
+        timestamp created_at
+    }
+    OUTBOX_EVENTS {
+        uuid id PK
+        varchar aggregate_type
+        uuid aggregate_id
+        uuid merchant_id FK
+        varchar event_type
+        varchar status
+        int attempts
+        timestamp created_at
     }
 
     MERCHANTS ||--o{ ACCOUNTS : possui
     MERCHANTS ||--o{ PAYMENTS : origina
+    MERCHANTS ||--o{ OUTBOX_EVENTS : referencia
     PAYMENTS ||--o{ PAYMENT_SPLITS : divide
     ACCOUNTS ||--o{ PAYMENT_SPLITS : recebe
     LEDGER_TRANSACTIONS ||--o| PAYMENTS : liquida
@@ -94,8 +105,8 @@ Operadores internos autenticados via JWT no `web-console`.
 | `password_hash` | `VARCHAR(255)` | `NOT NULL` | Hash BCrypt da senha (nunca texto puro). |
 | `role` | `VARCHAR(20)` | `NOT NULL CHECK (role IN ('ADMIN', 'ANALYST', 'VIEWER'))` | Papel RBAC do operador. |
 | `status` | `VARCHAR(20)` | `NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE'))` | Estado da conta do operador. |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
-| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
 
 **Índices:** `UNIQUE (email)` já cria índice único implícito para autenticação.
 
@@ -111,8 +122,8 @@ Estabelecimentos integradores autenticados via `X-API-Key`.
 | `api_key_hash` | `VARCHAR(64)` | `NOT NULL UNIQUE` | Hash **SHA-256 hex** da `X-API-Key` (64 chars). |
 | `default_fee_bps` | `INTEGER` | `NOT NULL DEFAULT 250 CHECK (default_fee_bps >= 0 AND default_fee_bps <= 10000)` | Taxa padrão da plataforma em basis points (`250` = `2.50%`). |
 | `status` | `VARCHAR(20)` | `NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED'))` | Estado operacional do merchant. |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
-| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
 
 **Índices:** `UNIQUE (api_key_hash)` acelera a resolução do filtro `X-API-Key`.
 
@@ -132,10 +143,13 @@ Contas contábeis/financeiras com controle de concorrência otimista (`@Version`
 | `pending_balance_cents` | `BIGINT` | `NOT NULL DEFAULT 0 CHECK (pending_balance_cents >= 0)` | Saldo pendente/bloqueado em centavos inteiros. |
 | `status` | `VARCHAR(20)` | `NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'BLOCKED'))` | Estado da conta. |
 | `version` | `BIGINT` | `NOT NULL DEFAULT 0` | Versão JPA (`@Version`) contra *lost updates*. |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
-| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
 
-> **Nota Contábil sobre `available_balance_cents`:** Não há `CHECK (available_balance_cents >= 0)` genérico na tabela porque a conta sistêmica `ESCROW` (conta de origem/clearing que recebe `DEBIT` na entrada da liquidação) assume saldo contábil negativo representando recursos capturados do adquirente. A proteção contra saldo insuficiente em contas de recebedores/estornos é garantida na camada de domínio (`LedgerService`).
+> **Regra Contábil de Saldo (Congelada para Semana 2):**
+> - **`CREDIT`** **soma** `amountCents` em `available_balance_cents`; **`DEBIT`** **subtrai** `amountCents` de `available_balance_cents`.
+> - A conta sistêmica **`ESCROW`** recebe `DEBIT` na liquidação (`PAYMENT_SETTLEMENT`) e **pode assumir saldo negativo** (representando recursos capturados do adquirente); por isso não há `CHECK (available_balance_cents >= 0)` genérico na tabela `accounts`.
+> - A proteção contra saldo insuficiente em contas de recebedores ou estornos é validada na camada de domínio (`LedgerService`).
 
 **Índices V1 (`accounts`):**
 - `idx_accounts_merchant_id` ON `ledger_core.accounts (merchant_id)`
@@ -158,12 +172,16 @@ Cabeçalho de uma movimentação contábil de partidas dobradas.
 | `description` | `VARCHAR(255)` | `NOT NULL` | Descrição auditável do lançamento. |
 | `currency` | `VARCHAR(3)` | `NOT NULL DEFAULT 'BRL' CHECK (currency = 'BRL')` | Moeda ISO-4217. |
 | `correlation_id` | `VARCHAR(64)` | `NOT NULL` | `X-Correlation-Id` propagado. |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação (**sem `updated_at`**). |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação (**sem `updated_at`**). |
 
 ---
 
 ### 3.2 `ledger_core.ledger_entries` (Estritamente Append-Only — Sem `UPDATE`/`DELETE`)
-Linhas individuais de débito e crédito. **Invariante:** para cada `ledger_transaction_id`, $\sum \text{amount\_cents (DEBIT)} = \sum \text{amount\_cents (CREDIT)}$.
+Linhas individuais de débito e crédito. **Invariantes obrigatórios:**
+1. Todo lançamento exige **`amountCents > 0`** (nunca zero ou negativo).
+2. Toda `ledger_transaction` exige **no mínimo 2 pernas** (`entries.size() >= 2`) e equilíbrio contábil estrito:
+   $$\sum \text{amount\_cents (DEBIT)} = \sum \text{amount\_cents (CREDIT)}$$
+3. Lançamentos contábeis seguem estritamente a regra `CREDIT` soma e `DEBIT` subtrai `amountCents` do saldo da conta correspondente (`balance_after_cents` registra o snapshot resultante após a movimentação).
 
 | Coluna | Tipo SQL | Restrições / Default | Descrição |
 | :--- | :--- | :--- | :--- |
@@ -173,7 +191,7 @@ Linhas individuais de débito e crédito. **Invariante:** para cada `ledger_tran
 | `direction` | `VARCHAR(10)` | `NOT NULL CHECK (direction IN ('DEBIT', 'CREDIT'))` | Direção do lançamento contábil. |
 | `amount_cents` | `BIGINT` | `NOT NULL CHECK (amount_cents > 0)` | Valor estritamente positivo em centavos inteiros. |
 | `balance_after_cents` | `BIGINT` | `NOT NULL` | Snapshot do saldo da conta imediatamente após este lançamento. |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação (**sem `updated_at`**). |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação (**sem `updated_at`**). |
 
 ---
 
@@ -199,8 +217,8 @@ Registro do ciclo de vida do pagamento e vínculo idempotente.
 | `correlation_id` | `VARCHAR(64)` | `NOT NULL` | `X-Correlation-Id` da requisição. |
 | `ledger_transaction_id` | `UUID` | `NULL REFERENCES ledger_core.ledger_transactions(id)` | Preenchida quando liquidado (`SETTLED`). |
 | `version` | `BIGINT` | `NOT NULL DEFAULT 0` | Versão JPA (`@Version`). |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
-| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da última atualização. |
 
 **Constraint Única:** `CONSTRAINT uq_payments_merchant_idempotency UNIQUE (merchant_id, idempotency_key)`
 
@@ -217,7 +235,7 @@ Regras de repartição calculadas e persistidas para cada pagamento.
 | `split_type` | `VARCHAR(20)` | `NOT NULL CHECK (split_type IN ('PERCENTAGE', 'FIXED'))` | Tipo de regra de divisão. |
 | `percentage_bps` | `INTEGER` | `NULL CHECK (percentage_bps IS NULL OR (percentage_bps > 0 AND percentage_bps <= 10000))` | Percentual em basis points quando `PERCENTAGE`. |
 | `amount_cents` | `BIGINT` | `NOT NULL CHECK (amount_cents > 0)` | Valor efetivo calculado em centavos inteiros (`> 0`). |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação. |
 
 **Constraint Única:** `CONSTRAINT uq_payment_splits_payment_recipient UNIQUE (payment_id, recipient_account_id)`
 
@@ -233,27 +251,53 @@ Regras de repartição calculadas e persistidas para cada pagamento.
 
 ---
 
-## 4. Nota de Portabilidade DDL (PostgreSQL 16 ↔ H2 `MODE=PostgreSQL`)
+## 4. Migration `V3__create_outbox_events.sql` (Dia 12 — Transactional Outbox)
 
-Para que os testes automatizados da Semana 1 (`mvn test` usando H2 em memória antes da introdução de Testcontainers no Dia 14) executem **exatamente as mesmas migrations Flyway `V1` e `V2`** sem falhas de sintaxe:
+### 4.1 `ledger_core.outbox_events`
+Tabela de eventos transacionais persistidos **na mesma `@Transactional`** que grava `payments` e `ledger_entries` (eliminando *dual-write*), lida pelo `OutboxRelayWorker` para publicação *at-least-once* na exchange `ledger.events` do RabbitMQ conforme [events-rabbitmq.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/events-rabbitmq.md).
 
-1. **JDBC URL recomendada para `application-test.yml` (H2):**
-   `jdbc:h2:mem:ledgerpulse_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS ledger_core`
-2. **Qualificação explícita de schema:** todas as tabelas e FKs nas migrations usam o prefixo `ledger_core.` (com `spring.flyway.schemas=ledger_core` e `spring.jpa.properties.hibernate.default_schema=ledger_core`). Não usar comandos exclusivos como `SET search_path` dentro de `V1`/`V2`.
-3. **Tipos de data e texto portáteis:**
-   - Usar `TIMESTAMP WITH TIME ZONE` (ou `TIMESTAMPTZ`, suportado no PostgreSQL 16 e no H2 2.2+ em `MODE=PostgreSQL`) com `DEFAULT CURRENT_TIMESTAMP` (evitar `NOW()` ou casts `::jsonb`).
-   - Usar `TEXT` para `reason_codes_json` em `V2` em vez de `JSONB` (evita divergência de dialeto no H2 durante a Semana 1–2).
-   - Usar `VARCHAR(3)` em vez de `CHAR(3)` para `currency` (evita padding inconsistente entre JDBC drivers).
-4. **Geração de UUID na aplicação:** não utilizar `CREATE EXTENSION pgcrypto/uuid-ossp` nem `DEFAULT gen_random_uuid()` no DDL; todos os UUIDs são atribuídos no Java (`UUID.randomUUID()`).
-5. **Índices com ordenação:** índices simples e compostos (`DESC`) descritos acima funcionam tanto em PostgreSQL 16 quanto no H2 2.2+ em `MODE=PostgreSQL`.
+| Coluna | Tipo SQL | Restrições / Default | Descrição |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY` | Identificador único do registro Outbox (utilizado como `eventId` no envelope RabbitMQ). |
+| `aggregate_type` | `VARCHAR(40)` | `NOT NULL` | Tipo do agregado de origem (ex.: `'PAYMENT'`). |
+| `aggregate_id` | `UUID` | `NOT NULL` | Identificador do agregado (ex.: `payment.id`). |
+| `merchant_id` | `UUID` | `NOT NULL REFERENCES ledger_core.merchants(id)` | Merchant proprietário do evento. |
+| `event_type` | `VARCHAR(80)` | `NOT NULL` | Routing key oficial (`payment.created`, `payment.settled`, `payment.declined`, `payment.manual_review_required`, `payment.refunded`, `risk.feedback.recorded`). |
+| `correlation_id` | `VARCHAR(64)` | `NOT NULL` | `X-Correlation-Id` propagado para o header AMQP. |
+| `payload_json` | `TEXT` | `NOT NULL` | Envelope JSON completo conforme `docs/contracts/events-rabbitmq.md`. |
+| `status` | `VARCHAR(20)` | `NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PUBLISHED', 'FAILED'))` | Estado de entrega ao broker RabbitMQ. |
+| `attempts` | `INTEGER` | `NOT NULL DEFAULT 0 CHECK (attempts >= 0)` | Contador de tentativas de publicação pelo relay. |
+| `last_error` | `TEXT` | `NULL` | Última mensagem de erro registrada em falha de envio. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação na transação SQL. |
+| `published_at` | `TIMESTAMP WITH TIME ZONE` | `NULL` | Data/hora UTC da confirmação de publicação no RabbitMQ. |
+
+**Índices V3 (`outbox_events`):**
+- `idx_outbox_status_created` ON `ledger_core.outbox_events (status, created_at ASC)`
+- `idx_outbox_aggregate` ON `ledger_core.outbox_events (aggregate_type, aggregate_id)`
 
 ---
 
-## 5. Semente Dev Local Padronizada (`dev` / `test`)
+## 5. Nota de Portabilidade DDL (PostgreSQL 16 ↔ H2 `2.2.224` `MODE=PostgreSQL`)
 
-Para viabilizar imediatamente os testes da Semana 1 (Dias 05 e 07 — login JWT, verificação RBAC e autenticação `X-API-Key`) e Semana 2 (Split e Ledger), o ambiente local e de teste deve provisionar os registros determinísticos abaixo **somente fora de produção** (via `ApplicationRunner` com `@Profile({"local", "dev", "test"})` ou pasta Flyway `classpath:db/seed` carregada apenas em `dev`/`test`, nunca hardcoded para produção):
+Para que os testes automatizados (`mvn test` usando H2 em memória antes da introdução de Testcontainers no Dia 14) executem **exatamente as mesmas migrations Flyway `V1`, `V2` e `V3`** sem falhas de sintaxe:
 
-### 5.1 Operadores Internos (`ledger_core.users`)
+1. **JDBC URL recomendada para `application-test.yml` (H2):**
+   `jdbc:h2:mem:ledgerpulse_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS ledger_core`
+2. **Qualificação explícita de schema:** todas as tabelas e FKs nas migrations usam o prefixo `ledger_core.` (com `spring.flyway.schemas=ledger_core` e `spring.jpa.properties.hibernate.default_schema=ledger_core`). Não usar comandos exclusivos como `SET search_path` dentro de `V1`/`V2`/`V3`.
+3. **Tipos de data e texto portáteis (Regra Obrigatória):**
+   - Usar **sempre `TIMESTAMP WITH TIME ZONE`** e **nunca `TIMESTAMPTZ`** no DDL (garante compatibilidade estrita com H2 `2.2.224` `MODE=PostgreSQL` e PostgreSQL 16), sempre com `DEFAULT CURRENT_TIMESTAMP` (evitar `NOW()` ou casts `::jsonb`).
+   - Usar `TEXT` para `reason_codes_json` (`V2`) e `payload_json` (`V3`) em vez de `JSONB` (evita divergência de dialeto no H2).
+   - Usar `VARCHAR(3)` em vez de `CHAR(3)` para `currency` (evita padding inconsistente entre JDBC drivers).
+4. **Geração de UUID na aplicação:** não utilizar `CREATE EXTENSION pgcrypto/uuid-ossp` nem `DEFAULT gen_random_uuid()` no DDL; todos os UUIDs são atribuídos no Java (`UUID.randomUUID()`).
+5. **Índices com ordenação:** índices simples e compostos (`ASC`/`DESC`) descritos acima funcionam tanto em PostgreSQL 16 quanto no H2 `2.2.224` em `MODE=PostgreSQL`.
+
+---
+
+## 6. Semente Dev Local Padronizada (`dev` / `test`)
+
+Para viabilizar imediatamente os testes da Semana 1 (Dias 05 e 07 — login JWT, verificação RBAC e autenticação `X-API-Key`) e Semana 2 (Split, Ledger e Outbox), o ambiente local e de teste deve provisionar os registros determinísticos abaixo **somente fora de produção** (via `ApplicationRunner` com `@Profile({"local", "dev", "test"})` ou pasta Flyway `classpath:db/seed` carregada apenas em `dev`/`test`, nunca hardcoded para produção):
+
+### 6.1 Operadores Internos (`ledger_core.users`)
 Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada como hash **BCrypt**).
 
 | ID (`UUID`) | Nome | Email | Role |
@@ -262,7 +306,7 @@ Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada 
 | `11111111-1111-4111-8111-111111111112` | `LedgerPulse Analyst` | `analyst@ledgerpulse.dev` | `ANALYST` |
 | `11111111-1111-4111-8111-111111111113` | `LedgerPulse Viewer` | `viewer@ledgerpulse.dev` | `VIEWER` |
 
-### 5.2 Merchant Demo (`ledger_core.merchants`)
+### 6.2 Merchant Demo (`ledger_core.merchants`)
 - **ID:** `7b92c3e0-1f42-4876-a1e2-901283471234`
 - **Nome:** `Acme Fintech Store`
 - **`default_fee_bps`:** `250` (`2.50%`)
@@ -271,7 +315,7 @@ Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada 
 - **`api_key_hash` armazenado no banco (SHA-256 hex lowercase):**
   `c7c6a21450462cbc3ab9eba66cb46fc1fa55686c524415346dcc58b55d8ae319`
 
-### 5.3 Contas Iniciais Padrão (`ledger_core.accounts`)
+### 6.3 Contas Iniciais Padrão (`ledger_core.accounts`)
 | ID (`UUID`) | `merchant_id` | `account_type` | `holder_name` | Saldo Inicial |
 | :--- | :--- | :--- | :--- | :---: |
 | `00000000-0000-4000-8000-000000000001` | `NULL` | `ESCROW` | `LedgerPulse Clearing Escrow` | `0` |

@@ -1,8 +1,8 @@
 # 📌 Estado Compartilhado do Projeto (`ledgerpulse-platform`)
 
-> **Atualizado em:** 20/11/2026  
-> **Fase Atual:** `Fase 1 — Semana 1 Concluída (Dias 01–07 · Branch feat/week-1-foundation com 13 commits totais pronta para PR)`  
-> **Próximo Marco:** **Semana 2 · Dia 08** (`feat/ledger-double-entry-entities` — Entidades Double-Entry Ledger + `@Version` — Chat 02) + validação live Docker Desktop (`docker compose up -d`)
+> **Atualizado em:** 21/11/2026  
+> **Fase Atual:** `Fase 2 — Semana 2 Concluída (Dias 08–14 · Branch feat/week-2-ledger-outbox com 13 commits pronta para PR #2)`  
+> **Próximo Marco:** **Semana 3 · Dia 15** (`feat/risk-engine-fastapi-bootstrap` — Microsserviço Python `risk-engine-ai` com FastAPI + Pydantic v2 — Chat 02)
 
 ---
 
@@ -22,7 +22,7 @@
 | Semana | Dias | Foco Principal | Chats Principais | Status |
 | :---: | :---: | :--- | :--- | :---: |
 | **Semana 1** | `01–07` | Docker Compose (PG 16, Redis 7, RabbitMQ 3), Contratos OpenAPI/Eventos, Bootstrap `ledger-core-api` (Java 21 + Flyway + Security JWT/API Key), Bootstrap `web-console` (React/TS) e CI inicial | `01`, `02`, `03`, `04` | ✅ Dias 01–07 Implementados (Docker live pendente) |
-| **Semana 2** | `08–14` | Double-Entry Ledger imutável + `@Version`, `Idempotency-Key` Redis, Motor de Split + Máquina de Estados, Transactional Outbox + Relay RabbitMQ, UI Auditoria Ledger + Contas | `01`, `02`, `03`, `04` | ⏳ Pendente |
+| **Semana 2** | `08–14` | Double-Entry Ledger imutável + `@Version`, `Idempotency-Key` Redis, Motor de Split + Máquina de Estados, Transactional Outbox + Relay RabbitMQ, UI Auditoria Ledger + Contas | `01`, `02`, `03`, `04` | ✅ Dias 08–14 Concluídos |
 | **Semana 3** | `15–21` | Microsserviço Python `risk-engine-ai` (FastAPI + Scikit-Learn + `reason_codes`), Integração Resilience4j (Circuit Breaker + Fallback), Fluxo `MANUAL_REVIEW`, Central Antifraude UI | `01`, `02`, `03`, `04` | ⏳ Pendente |
 | **Semana 4** | `22–28` | Microsserviço `webhook-dispatcher` (Spring AMQP + Virtual Threads + HMAC-SHA256), Topologia Retry TTL + DLQ + Replay, Webhook Sink, Console DLQ + Simulador Checkout + Teste E2E | `01`, `02`, `03`, `04` | ⏳ Pendente |
 | **Semana 5** | `29–35` | Stream Real-Time via SSE, Estornos compensatórios (`REFUND`), Conciliação `@Scheduled` + CSV, Dashboard Real-Time + Rate Limiting Token Bucket Redis + Revisão Segurança/Índices | `01`, `02`, `03`, `04` | ⏳ Pendente |
@@ -32,7 +32,7 @@
 
 ## 3. 🚧 Bloqueios / Decisões em Aberto
 
-- **Validação Live Docker (Dia 01 Pendente):** `docker compose config --quiet` validado com código `0`, porém o daemon do **Docker Desktop** estava parado (`//./pipe/dockerDesktopLinuxEngine` indisponível) e um PostgreSQL local do Windows (PID `7984`) ocupa a porta `5432`. Ao retornar, abra o Docker Desktop e pare o Postgres local ou crie `.env` (a partir de `.env.example`) com `POSTGRES_PORT=5433` para executar `docker compose up -d` e verificar os 3 containers `healthy` + schemas (`\dn`).
+- **Validação Live Docker (Pendente no host Windows):** `docker compose config --quiet` validado com código `0`, porém o daemon do **Docker Desktop** estava parado (`//./pipe/dockerDesktopLinuxEngine` indisponível) e um PostgreSQL local do Windows (PID `7984`) ocupa a porta `5432`. A suíte `LedgerCoreTestcontainersIT` rodará automaticamente no CI (`ubuntu-latest` / `mvn -B verify`) e localmente após abrir o Docker Desktop (parando o Postgres local ou usando `POSTGRES_PORT=5433` em `.env`).
 - **PostgreSQL 16 (Decisão fechada):** 1 database (`ledgerpulse`) com 2 schemas isolados (`ledger_core` e `webhooks`), inicializados via `infra/postgres/init/01-create-schemas.sql`.
 - **Ownership `.env.example` (Resolvido):** incluído oficialmente no ownership do Chat 04 em `AGENTS.md` e `docs/chats-registry.json`.
 
@@ -40,6 +40,12 @@
 
 ## 4. 🔄 Último Handoff entre Chats
 
+- **21/11/2026 — Semana 2 (Dias 08–14) Consolidada na Branch `feat/week-2-ledger-outbox`:**
+  - **Chat 01 (Alinhamento V3 & Invariantes):** Documentou `V3__create_outbox_events.sql` e regras de partidas dobradas em [01-modelo-dados-v1.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/architecture/01-modelo-dados-v1.md) e [events-rabbitmq.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/events-rabbitmq.md).
+  - **Chat 02 (Dias 08–12 & 14):** Implementou em `services/ledger-core-api` as entidades `Account` (`@Version`), `LedgerTransaction`, `LedgerEntry` (append-only, ordenação determinística `DEBIT` antes de `CREDIT`), `LedgerService` + testes multi-thread de concorrência, `IdempotencyService` (Redis/In-Memory + hash SHA-256 + `409`), `Payment`/`PaymentSplit` + `SplitCalculator` + `StubRiskEvaluator`, `V3__create_outbox_events.sql` + `OutboxRelayWorker` (RabbitMQ `ledger.events`) e `LedgerCoreTestcontainersIT` — validado com `mvn -B verify` (`44/44` Surefire passando; `LedgerCoreTestcontainersIT` compilado e pronto para Docker/CI).
+  - **Chat 03 (Dias 13–14):** Implementou em `apps/web-console` os serviços e páginas `LedgerAuditPage` (com `LedgerTransactionDrawer` provando `Σ Débitos = Σ Créditos`) e `AccountsPage` (com `CreateAccountModal` RBAC `ADMIN`) — validado com `npx tsc --noEmit` e `npm run build` (`1601` módulos, `exit 0`).
+  - **Chat 04 (Dia 14 CI):** Atualizou `.github/workflows/ci.yml` para executar `mvn -B verify` no job `ledger-core-api`.
+  - **Git Local:** `13` commits atômicos na branch `feat/week-2-ledger-outbox` a partir de `main` (`55fb9fb`), prontos para push e PR #2.
 - **20/11/2026 — Semana 1 (Dias 01–07) Consolidada na Branch `feat/week-1-foundation`:**
   - **Chat 04 (Dia 01 & Dia 07 CI):** `docker-compose.yml`, `.env.example`, `infra/postgres/init/01-create-schemas.sql`, `Makefile` (`docker compose config --quiet` OK) e `.github/workflows/ci.yml`.
   - **Chat 01 (Dia 02):** Contratos v1 congelados em `docs/contracts/api-v1-overview.md`, `docs/contracts/openapi-ledger-core-v1.yaml` (OpenAPI 3.1.0), `docs/contracts/events-rabbitmq.md` e modelagem SQL conceitual `docs/architecture/01-modelo-dados-v1.md`.
