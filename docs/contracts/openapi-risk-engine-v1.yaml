@@ -1,0 +1,312 @@
+openapi: 3.1.0
+info:
+  title: LedgerPulse Risk Engine AI
+  version: "1.0.0"
+  description: >
+    Contrato REST v1 oficial do microsserviço `risk-engine-ai` (Python 3.13/3.12 + FastAPI + Scikit-Learn).
+    Congelado para Semana 3 no fluxo Contract-First.
+    Invariante monetário: `amount_cents` é sempre representado em centavos inteiros (`int64`, `> 0`).
+servers:
+  - url: http://localhost:8001
+    description: Ambiente Local (Docker Compose / Uvicorn)
+tags:
+  - name: Health
+    description: Diagnóstico do serviço e carregamento do artefato `.joblib`
+  - name: Risk
+    description: Metadados do modelo e avaliação híbrida antifraude (`snake_case`)
+  - name: Observability
+    description: Exposição de métricas Prometheus
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Healthcheck do serviço FastAPI e status do modelo ML carregado
+      operationId: getRiskEngineHealth
+      responses:
+        "200":
+          description: Serviço saudável
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskHealthResponse"
+  /v1/risk/model-info:
+    get:
+      tags:
+        - Risk
+      summary: Metadados, features e métricas de treino do modelo híbrido
+      operationId: getRiskModelInfo
+      responses:
+        "200":
+          description: Metadados do modelo carregado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelInfoResponse"
+  /v1/risk/evaluate:
+    post:
+      tags:
+        - Risk
+      summary: Avalia risco antifraude combinando ML e regras determinísticas (`snake_case`)
+      operationId: evaluateRisk
+      parameters:
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Identificador de correlação distribuída propagado pelo ledger-core-api
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskEvaluateRequest"
+      responses:
+        "200":
+          description: Score, decisão e reason codes explicáveis calculados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskEvaluateResponse"
+        "422":
+          description: Erro de validação Pydantic v2
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "500":
+          description: Erro interno ao avaliar risco
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalErrorResponse"
+  /metrics:
+    get:
+      tags:
+        - Observability
+      summary: Métricas no formato OpenMetrics / Prometheus text
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Métricas exportadas para scrape Prometheus
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "# HELP risk_evaluation_total Total risk evaluations\n# TYPE risk_evaluation_total counter\nrisk_evaluation_total 0\n"
+components:
+  schemas:
+    RiskHealthResponse:
+      type: object
+      required:
+        - status
+        - modelLoaded
+        - modelVersion
+      properties:
+        status:
+          type: string
+          example: ok
+        modelLoaded:
+          type: boolean
+          example: true
+        modelVersion:
+          type: string
+          example: v1.0.0
+    ModelMetrics:
+      type: object
+      required:
+        - precision
+        - recall
+        - f1Score
+        - rocAuc
+      description: Métricas estatísticas de validação do modelo ML (valores adimensionais entre 0 e 1)
+      properties:
+        precision:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.91
+        recall:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.89
+        f1Score:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.90
+        rocAuc:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.96
+    ModelInfoResponse:
+      type: object
+      required:
+        - modelVersion
+        - algorithm
+        - features
+        - metrics
+        - trainedAt
+      properties:
+        modelVersion:
+          type: string
+          example: v1.0.0
+        algorithm:
+          type: string
+          example: "Hybrid(IsolationForest+RandomForest+Rules)"
+        features:
+          type: array
+          items:
+            type: string
+          example:
+            - amount_cents
+            - velocity_1h
+            - hour_of_day
+            - account_age_days
+            - payment_method_code
+            - is_foreign_ip
+        metrics:
+          $ref: "#/components/schemas/ModelMetrics"
+        trainedAt:
+          type: string
+          format: date-time
+          example: "2026-11-22T12:00:00Z"
+    PaymentMethodCode:
+      type: string
+      enum:
+        - CARD
+        - PIX
+        - BOLETO
+    RiskDecisionCode:
+      type: string
+      enum:
+        - APPROVE
+        - REVIEW
+        - BLOCK
+    ReasonCode:
+      type: string
+      description: Vocabulário oficial de reason codes emitidos pelo motor híbrido
+      enum:
+        - VELOCITY_SPIKE
+        - HIGH_TICKET_NEW_ACCOUNT
+        - NIGHT_ANOMALY
+        - FOREIGN_IP_HIGH_AMOUNT
+        - ML_ANOMALY_DETECTED
+        - ML_HIGH_FRAUD_PROBABILITY
+    RiskEvaluateRequest:
+      type: object
+      required:
+        - payment_id
+        - merchant_id
+        - payer_id
+        - amount_cents
+        - payment_method
+        - ip_country
+        - velocity_1h
+        - hour_of_day
+        - account_age_days
+      properties:
+        payment_id:
+          type: string
+          format: uuid
+          example: e1d2c3b4-5a6b-4c7d-8e9f-001122334455
+        merchant_id:
+          type: string
+          format: uuid
+          example: 7b92c3e0-1f42-4876-a1e2-901283471234
+        payer_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: payer-98765
+        amount_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Valor da transação em centavos inteiros (> 0)
+          example: 15000
+        payment_method:
+          $ref: "#/components/schemas/PaymentMethodCode"
+        ip_country:
+          type: string
+          pattern: "^[A-Z]{2}$"
+          description: Código do país ISO-3166-1 alpha-2
+          example: BR
+        velocity_1h:
+          type: integer
+          format: int32
+          minimum: 0
+          example: 1
+        hour_of_day:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 23
+          example: 14
+        account_age_days:
+          type: integer
+          format: int32
+          minimum: 0
+          example: 180
+    RiskEvaluateResponse:
+      type: object
+      required:
+        - risk_score
+        - decision
+        - reason_codes
+        - model_version
+      properties:
+        risk_score:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+          example: 58
+        decision:
+          $ref: "#/components/schemas/RiskDecisionCode"
+        reason_codes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReasonCode"
+          example:
+            - NIGHT_ANOMALY
+            - ML_ANOMALY_DETECTED
+        model_version:
+          type: string
+          example: v1.0.0
+    ValidationErrorDetail:
+      type: object
+      required:
+        - loc
+        - msg
+        - type
+      properties:
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationErrorDetail"
+    InternalErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          example: Internal error evaluating payment risk

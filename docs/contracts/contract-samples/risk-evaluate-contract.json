@@ -1,0 +1,40 @@
+{
+  "request": {
+    "payment_id": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+    "merchant_id": "7b92c3e0-1f42-4876-a1e2-901283471234",
+    "payer_id": "payer-98765",
+    "amount_cents": 15000,
+    "payment_method": "CARD",
+    "ip_country": "BR",
+    "velocity_1h": 1,
+    "hour_of_day": 14,
+    "account_age_days": 180
+  },
+  "responses": {
+    "approve": {
+      "risk_score": 12,
+      "decision": "APPROVE",
+      "reason_codes": [],
+      "model_version": "v1.0.0"
+    },
+    "review": {
+      "risk_score": 58,
+      "decision": "REVIEW",
+      "reason_codes": [
+        "NIGHT_ANOMALY",
+        "ML_ANOMALY_DETECTED"
+      ],
+      "model_version": "v1.0.0"
+    },
+    "block": {
+      "risk_score": 92,
+      "decision": "BLOCK",
+      "reason_codes": [
+        "VELOCITY_SPIKE",
+        "HIGH_TICKET_NEW_ACCOUNT",
+        "ML_HIGH_FRAUD_PROBABILITY"
+      ],
+      "model_version": "v1.0.0"
+    }
+  }
+}

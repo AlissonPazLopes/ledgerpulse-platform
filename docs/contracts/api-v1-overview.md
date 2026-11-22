@@ -1,7 +1,9 @@
 # 🌐 Contratos REST v1 (`api-v1-overview.md`)
 
-> **Versão do Contrato:** `v1.0-frozen` (Semanas 1 e 2 congeladas)  
+> **Versão do Contrato:** `v1.0-frozen` (Semanas 1, 2 e 3 congeladas)  
 > **Especificação OpenAPI (`ledger-core-api`):** [openapi-ledger-core-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-ledger-core-v1.yaml)  
+> **Especificação OpenAPI (`risk-engine-ai`):** [openapi-risk-engine-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-risk-engine-v1.yaml)  
+> **Fixture de Contrato Cruzado (`risk-engine-ai`):** [risk-evaluate-contract.json](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/contract-samples/risk-evaluate-contract.json)  
 > **Responsável:** Chat 01 (Arquiteto de Software & Contratos)  
 > **Padrão de Erro:** RFC 7807 / RFC 9457 (`application/problem+json`)
 
@@ -59,6 +61,7 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 | `forbidden` | `https://ledgerpulse.dev/errors/forbidden` | `403` | `Forbidden` | Usuário autenticado sem a role exigida (ex.: `ANALYST`/`VIEWER` em rota exclusiva `ADMIN`) ou acesso a recurso de outro merchant. |
 | `resource-not-found` | `https://ledgerpulse.dev/errors/resource-not-found` | `404` | `Resource Not Found` | Entidade (`account`, `payment`, `ledgerTransaction`, `merchant`) não encontrada. |
 | `idempotency-conflict` | `https://ledgerpulse.dev/errors/idempotency-conflict` | `409` | `Idempotency Key Conflict` | **Decisão congelada (`409` em vez de `422`):** mesma `Idempotency-Key` reutilizada com payload divergente (ou requisição concorrente ainda em processamento). |
+| `invalid-payment-state` | `https://ledgerpulse.dev/errors/invalid-payment-state` | `409` | `Invalid Payment State` | Transição de estado inválida ou tentativa de decisão manual quando o pagamento não se encontra em `MANUAL_REVIEW`. |
 | `optimistic-lock-conflict` | `https://ledgerpulse.dev/errors/optimistic-lock-conflict` | `409` | `Optimistic Lock Conflict` | Colisão de `@Version` em atualização concorrente de conta ou pagamento. |
 | `rate-limit-exceeded` | `https://ledgerpulse.dev/errors/rate-limit-exceeded` | `429` | `Rate Limit Exceeded` | Limite do Token Bucket no Redis excedido para a `X-API-Key`. |
 | `internal-error` | `https://ledgerpulse.dev/errors/internal-error` | `500` | `Internal Server Error` | Falha inesperada não tratada (sem vazar stacktrace ou segredos ao cliente). |
@@ -366,7 +369,7 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 
 ### 4.9 `POST /api/v1/payments`, `GET /api/v1/payments` e `GET /api/v1/payments/{id}`
 
-> **Nota de Transição Semana 2 → Semana 3:** Durante a Semana 2 (Dias 11–14), antes da subida do `risk-engine-ai` na Semana 3 (Dias 15–18), o `ledger-core-api` opera com um avaliador de risco *stub* atrás da interface de domínio retornando `decision = "APPROVE"`, `riskScore = 0` e `reasonCodes = []`.
+> **Nota de Transição Semana 2 → Semana 3:** Durante a Semana 2 (Dias 11–14), o `ledger-core-api` operou com um avaliador *stub* retornando `APPROVE`. A partir da **Semana 3 (Dia 18)**, `POST /api/v1/payments` chama `risk-engine-ai` (`POST /v1/risk/evaluate`) protegido por **Resilience4j** (Timeout `1.5s`, Retry curto e Circuit Breaker), enviando o pagamento para `MANUAL_REVIEW` quando `decision = "REVIEW"` ou via fallback (`RISK_ENGINE_UNAVAILABLE`), e para `DECLINED` quando `decision = "BLOCK"`.
 
 **Request (`POST /api/v1/payments` — Header obrigatório `Idempotency-Key`):**
 > Quando autenticado via `X-API-Key`, o `merchantId` é resolvido pela chave (e se enviado no body, deve coincidir com o merchant autenticado). `splits` aceita `splitType: "PERCENTAGE"` (`percentageBps` obrigatório) ou `"FIXED"` (`amountCents` obrigatório); se omitido ou vazio, 100% do líquido após `platformFeeCents` vai para a conta `MERCHANT`.
@@ -461,18 +464,178 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 }
 ```
 
+### 4.10 `GET /api/v1/risk/reviews` (JWT `ANALYST` ou `ADMIN`; `VIEWER` → `403 Forbidden`)
+
+**Query params opcionais:** `page` (`0`), `size` (`20`), `merchantId` (`UUID`), `minRiskScore` (`0..100`), `from` (`ISO-8601 UTC`), `to` (`ISO-8601 UTC`).
+
+**Response `200 OK`:**
+```json
+{
+  "items": [
+    {
+      "paymentId": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+      "merchantId": "7b92c3e0-1f42-4876-a1e2-901283471234",
+      "payerId": "payer-98765",
+      "amountCents": 185000,
+      "platformFeeCents": 4625,
+      "netMerchantCents": 180375,
+      "currency": "BRL",
+      "paymentMethod": "CARD",
+      "description": "Compra de alto valor fora do horário padrão",
+      "status": "MANUAL_REVIEW",
+      "riskScore": 58,
+      "riskDecision": "REVIEW",
+      "reasonCodes": [
+        "NIGHT_ANOMALY",
+        "ML_ANOMALY_DETECTED"
+      ],
+      "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+      "createdAt": "2026-11-22T02:15:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### 4.11 `POST /api/v1/risk/reviews/{paymentId}/decision` (JWT `ANALYST` ou `ADMIN`; `VIEWER` → `403 Forbidden`)
+
+- Caso o pagamento não exista → `404 Not Found` (`resource-not-found`).
+- Caso o pagamento não esteja em `MANUAL_REVIEW` → `409 Conflict` (`invalid-payment-state`).
+- Caso `justification` tenha menos de `5` ou mais de `500` caracteres → `400 Bad Request` (`validation-error`).
+
+**Request:**
+```json
+{
+  "decision": "APPROVE",
+  "justification": "Titular confirmou a operação via contato telefônico antifraude."
+}
+```
+
+**Response `200 OK` (quando `decision = "APPROVE"` → `paymentStatus = "SETTLED"`):**
+```json
+{
+  "decisionId": "d1a2b3c4-1111-4222-8333-444455556666",
+  "paymentId": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+  "decision": "APPROVE",
+  "paymentStatus": "SETTLED",
+  "ledgerTransactionId": "f9e8d7c6-5b4a-4321-8765-112233445566",
+  "justification": "Titular confirmou a operação via contato telefônico antifraude.",
+  "reviewedByUserId": "11111111-1111-4111-8111-111111111112",
+  "reviewedByEmail": "analyst@ledgerpulse.dev",
+  "reviewedAt": "2026-11-22T12:45:00Z"
+}
+```
+
+> Quando `decision = "DECLINE"`, `paymentStatus` é `"DECLINED"` e `ledgerTransactionId` é `null`.
+
 ---
 
-## 5. Endpoints Principais — `risk-engine-ai` (`:8001`) — Semana 3
+## 5. Contratos JSON Congelados — `risk-engine-ai` (`:8001`) — Semana 3
 
-> **Regra de Naming:** o contrato de avaliação `POST /v1/risk/evaluate` utiliza **`snake_case`** (padrão Python / Pydantic v2).
+> **Especificação OpenAPI (`risk-engine-ai`):** [openapi-risk-engine-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-risk-engine-v1.yaml)  
+> **Fixture de Contrato Cruzado:** [risk-evaluate-contract.json](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/contract-samples/risk-evaluate-contract.json)  
+> **Regra de Naming:** o contrato `POST /v1/risk/evaluate` utiliza **`snake_case`** estrito (Pydantic v2), com valores monetários sempre em centavos inteiros (`amount_cents`).
 
-| Método & Rota | Resumo | Request / Response Principal |
+### 5.1 Vocabulário Oficial de `reason_codes` (Congelado)
+
+| Código | Emissor | Semântica |
 | :--- | :--- | :--- |
-| `GET /health` | Healthcheck do serviço FastAPI e status do modelo `.joblib` carregado. | `{ "status": "ok", "modelLoaded": true, "modelVersion": "v1.0.0" }` |
-| `GET /v1/risk/model-info` | Metadados do modelo treinado (algoritmo, features, métricas de treino). | `{ "algorithm": "Hybrid(IsolationForest+RandomForest+Rules)", "features": [...] }` |
-| `POST /v1/risk/evaluate` | Avalia risco de pagamento antes da liquidação (`snake_case`). | Entrada: `payment_id`, `merchant_id`, `payer_id`, `amount_cents`, `payment_method`, `ip_country`, `velocity_1h`, `hour_of_day`, `account_age_days`. Saída: `risk_score` (`0..100`), `decision` (`APPROVE`/`REVIEW`/`BLOCK`), `reason_codes` (`list[str]`), `model_version`. |
-| `GET /metrics` | Métricas Prometheus do serviço Python. | Formato OpenMetrics / Prometheus text. |
+| `VELOCITY_SPIKE` | `risk-engine-ai` | Elevado volume de transações em janela de 1 hora (`velocity_1h`). |
+| `HIGH_TICKET_NEW_ACCOUNT` | `risk-engine-ai` | Valor elevado (`amount_cents`) em conta de pagador recém-criada (`account_age_days`). |
+| `NIGHT_ANOMALY` | `risk-engine-ai` | Transação realizada em faixa horária atípica de madrugada (`hour_of_day`). |
+| `FOREIGN_IP_HIGH_AMOUNT` | `risk-engine-ai` | IP fora do país padrão (`ip_country != "BR"`) combinado com ticket alto. |
+| `ML_ANOMALY_DETECTED` | `risk-engine-ai` | `IsolationForest` classificou o vetor de features como anomalia estatística. |
+| `ML_HIGH_FRAUD_PROBABILITY` | `risk-engine-ai` | `RandomForestClassifier` apontou alta probabilidade de fraude. |
+| `RISK_ENGINE_UNAVAILABLE` | `ledger-core-api` (Fallback) | Emitido pelo fallback Resilience4j quando `risk-engine-ai` está indisponível/timeout (força `MANUAL_REVIEW`). |
+
+### 5.2 Mapa e Payloads Exatos — `risk-engine-ai`
+
+| Método & Rota | Resumo | Status |
+| :--- | :--- | :---: |
+| `GET /health` | Healthcheck do serviço FastAPI e status do modelo `.joblib`. | `200 OK` |
+| `GET /v1/risk/model-info` | Metadados do modelo treinado (algoritmo, features, métricas de treino). | `200 OK` |
+| `POST /v1/risk/evaluate` | Avalia risco híbrido (ML + Regras determinísticas) em `snake_case`. | `200 OK` |
+| `GET /metrics` | Métricas Prometheus/OpenMetrics do serviço Python. | `200 OK` |
+
+#### `GET /health` (`200 OK`)
+```json
+{
+  "status": "ok",
+  "modelLoaded": true,
+  "modelVersion": "v1.0.0"
+}
+```
+
+#### `GET /v1/risk/model-info` (`200 OK`)
+```json
+{
+  "modelVersion": "v1.0.0",
+  "algorithm": "Hybrid(IsolationForest+RandomForest+Rules)",
+  "features": [
+    "amount_cents",
+    "velocity_1h",
+    "hour_of_day",
+    "account_age_days",
+    "payment_method_code",
+    "is_foreign_ip"
+  ],
+  "metrics": {
+    "precision": 0.91,
+    "recall": 0.89,
+    "f1Score": 0.90,
+    "rocAuc": 0.96
+  },
+  "trainedAt": "2026-11-22T12:00:00Z"
+}
+```
+
+#### `POST /v1/risk/evaluate` (`snake_case` estrito)
+
+**Request:**
+```json
+{
+  "payment_id": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+  "merchant_id": "7b92c3e0-1f42-4876-a1e2-901283471234",
+  "payer_id": "payer-98765",
+  "amount_cents": 15000,
+  "payment_method": "CARD",
+  "ip_country": "BR",
+  "velocity_1h": 1,
+  "hour_of_day": 14,
+  "account_age_days": 180
+}
+```
+
+**Regras de Validação de Entrada (`POST /v1/risk/evaluate`):**
+- `payment_id`, `merchant_id`: UUID string obrigatório.
+- `payer_id`: string não vazia.
+- `amount_cents`: inteiro estritamente positivo (`> 0`).
+- `payment_method`: `"CARD"` | `"PIX"` | `"BOLETO"`.
+- `ip_country`: string ISO-3166-1 alpha-2 (`2` letras maiúsculas, ex.: `"BR"`).
+- `velocity_1h`: inteiro `>= 0`.
+- `hour_of_day`: inteiro `0..23`.
+- `account_age_days`: inteiro `>= 0`.
+
+**Response `200 OK`:**
+- `risk_score`: inteiro `0..100`
+- `decision`: `"APPROVE"` | `"REVIEW"` | `"BLOCK"`
+- `reason_codes`: lista de strings do vocabulário oficial
+- `model_version`: string
+
+```json
+{
+  "risk_score": 58,
+  "decision": "REVIEW",
+  "reason_codes": [
+    "NIGHT_ANOMALY",
+    "ML_ANOMALY_DETECTED"
+  ],
+  "model_version": "v1.0.0"
+}
+```
 
 ---
 

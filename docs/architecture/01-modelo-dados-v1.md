@@ -1,6 +1,6 @@
 # 🗄️ 01 — Modelagem Conceitual de Dados v1 (`ledger_core`)
 
-> **Versão:** `v1.1-frozen` (Semanas 1 e 2 · Inclui Outbox V3 e Invariantes do Ledger)  
+> **Versão:** `v1.2-frozen` (Semanas 1, 2 e 3 · Inclui Outbox V3 e Risk Review Decisions V4)  
 > **Responsável:** Chat 01 (Arquiteto de Software & Contratos)  
 > **Banco Alvo:** PostgreSQL 16 · Database `ledgerpulse` · Schema `ledger_core` (conforme decisão fechada em [STATUS.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/STATUS.md) e [01-create-schemas.sql](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/infra/postgres/init/01-create-schemas.sql))
 
@@ -79,11 +79,22 @@ erDiagram
         int attempts
         timestamp created_at
     }
+    RISK_REVIEW_DECISIONS {
+        uuid id PK
+        uuid payment_id FK
+        uuid reviewer_user_id FK
+        varchar decision
+        varchar previous_status
+        varchar resulting_status
+        timestamp created_at
+    }
 
     MERCHANTS ||--o{ ACCOUNTS : possui
     MERCHANTS ||--o{ PAYMENTS : origina
     MERCHANTS ||--o{ OUTBOX_EVENTS : referencia
     PAYMENTS ||--o{ PAYMENT_SPLITS : divide
+    PAYMENTS ||--o| RISK_REVIEW_DECISIONS : revisado_por
+    USERS ||--o{ RISK_REVIEW_DECISIONS : decide
     ACCOUNTS ||--o{ PAYMENT_SPLITS : recebe
     LEDGER_TRANSACTIONS ||--o| PAYMENTS : liquida
     LEDGER_TRANSACTIONS ||--|{ LEDGER_ENTRIES : compoe
@@ -277,13 +288,36 @@ Tabela de eventos transacionais persistidos **na mesma `@Transactional`** que gr
 
 ---
 
-## 5. Nota de Portabilidade DDL (PostgreSQL 16 ↔ H2 `2.2.224` `MODE=PostgreSQL`)
+## 5. Migration `V4__create_risk_review_decisions.sql` (Dia 19 — Revisão Manual Antifraude)
 
-Para que os testes automatizados (`mvn test` usando H2 em memória antes da introdução de Testcontainers no Dia 14) executem **exatamente as mesmas migrations Flyway `V1`, `V2` e `V3`** sem falhas de sintaxe:
+### 5.1 `ledger_core.risk_review_decisions`
+Registro auditável da decisão humana (`APPROVE` / `DECLINE`) tomada por analista (`ANALYST` ou `ADMIN`) sobre pagamentos retidos em `MANUAL_REVIEW`.
+
+| Coluna | Tipo SQL | Restrições / Default | Descrição |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY` | Identificador único da decisão de revisão. |
+| `payment_id` | `UUID` | `NOT NULL UNIQUE REFERENCES ledger_core.payments(id)` | Pagamento revisado (no máximo uma decisão final por pagamento). |
+| `reviewer_user_id` | `UUID` | `NOT NULL REFERENCES ledger_core.users(id)` | Operador (`ANALYST`/`ADMIN`) que decidiu. |
+| `reviewer_email` | `VARCHAR(160)` | `NOT NULL` | Snapshot do email do revisor para auditoria direta. |
+| `decision` | `VARCHAR(20)` | `NOT NULL CHECK (decision IN ('APPROVE', 'DECLINE'))` | Decisão registrada na revisão manual. |
+| `justification` | `VARCHAR(500)` | `NOT NULL` | Justificativa obrigatória registrada pelo analista (`5..500` chars). |
+| `previous_status` | `VARCHAR(30)` | `NOT NULL` | Estado anterior do pagamento (esperado `'MANUAL_REVIEW'`). |
+| `resulting_status` | `VARCHAR(30)` | `NOT NULL CHECK (resulting_status IN ('SETTLED', 'DECLINED'))` | Estado resultante após liquidar ou recusar. |
+| `correlation_id` | `VARCHAR(64)` | `NOT NULL` | `X-Correlation-Id` da requisição de revisão. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da decisão. |
+
+**Índices V4 (`risk_review_decisions`):**
+- `idx_risk_review_decisions_created` ON `ledger_core.risk_review_decisions (created_at DESC)`
+
+---
+
+## 6. Nota de Portabilidade DDL (PostgreSQL 16 ↔ H2 `2.2.224` `MODE=PostgreSQL`)
+
+Para que os testes automatizados (`mvn test` usando H2 em memória e `mvn verify` com Testcontainers) executem **exatamente as mesmas migrations Flyway `V1`, `V2`, `V3` e `V4`** sem falhas de sintaxe:
 
 1. **JDBC URL recomendada para `application-test.yml` (H2):**
    `jdbc:h2:mem:ledgerpulse_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS ledger_core`
-2. **Qualificação explícita de schema:** todas as tabelas e FKs nas migrations usam o prefixo `ledger_core.` (com `spring.flyway.schemas=ledger_core` e `spring.jpa.properties.hibernate.default_schema=ledger_core`). Não usar comandos exclusivos como `SET search_path` dentro de `V1`/`V2`/`V3`.
+2. **Qualificação explícita de schema:** todas as tabelas e FKs nas migrations usam o prefixo `ledger_core.` (com `spring.flyway.schemas=ledger_core` e `spring.jpa.properties.hibernate.default_schema=ledger_core`). Não usar comandos exclusivos como `SET search_path` dentro de `V1`/`V2`/`V3`/`V4`.
 3. **Tipos de data e texto portáteis (Regra Obrigatória):**
    - Usar **sempre `TIMESTAMP WITH TIME ZONE`** e **nunca `TIMESTAMPTZ`** no DDL (garante compatibilidade estrita com H2 `2.2.224` `MODE=PostgreSQL` e PostgreSQL 16), sempre com `DEFAULT CURRENT_TIMESTAMP` (evitar `NOW()` ou casts `::jsonb`).
    - Usar `TEXT` para `reason_codes_json` (`V2`) e `payload_json` (`V3`) em vez de `JSONB` (evita divergência de dialeto no H2).
@@ -293,11 +327,11 @@ Para que os testes automatizados (`mvn test` usando H2 em memória antes da intr
 
 ---
 
-## 6. Semente Dev Local Padronizada (`dev` / `test`)
+## 7. Semente Dev Local Padronizada (`dev` / `test`)
 
-Para viabilizar imediatamente os testes da Semana 1 (Dias 05 e 07 — login JWT, verificação RBAC e autenticação `X-API-Key`) e Semana 2 (Split, Ledger e Outbox), o ambiente local e de teste deve provisionar os registros determinísticos abaixo **somente fora de produção** (via `ApplicationRunner` com `@Profile({"local", "dev", "test"})` ou pasta Flyway `classpath:db/seed` carregada apenas em `dev`/`test`, nunca hardcoded para produção):
+Para viabilizar imediatamente os testes da Semana 1 (Dias 05 e 07 — login JWT, verificação RBAC e autenticação `X-API-Key`), Semana 2 (Split, Ledger e Outbox) e Semana 3 (Antifraude e Revisão Manual), o ambiente local e de teste deve provisionar os registros determinísticos abaixo **somente fora de produção** (via `ApplicationRunner` com `@Profile({"local", "dev", "test"})` ou pasta Flyway `classpath:db/seed` carregada apenas em `dev`/`test`, nunca hardcoded para produção):
 
-### 6.1 Operadores Internos (`ledger_core.users`)
+### 7.1 Operadores Internos (`ledger_core.users`)
 Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada como hash **BCrypt**).
 
 | ID (`UUID`) | Nome | Email | Role |
@@ -306,7 +340,7 @@ Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada 
 | `11111111-1111-4111-8111-111111111112` | `LedgerPulse Analyst` | `analyst@ledgerpulse.dev` | `ANALYST` |
 | `11111111-1111-4111-8111-111111111113` | `LedgerPulse Viewer` | `viewer@ledgerpulse.dev` | `VIEWER` |
 
-### 6.2 Merchant Demo (`ledger_core.merchants`)
+### 7.2 Merchant Demo (`ledger_core.merchants`)
 - **ID:** `7b92c3e0-1f42-4876-a1e2-901283471234`
 - **Nome:** `Acme Fintech Store`
 - **`default_fee_bps`:** `250` (`2.50%`)
@@ -315,7 +349,7 @@ Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada 
 - **`api_key_hash` armazenado no banco (SHA-256 hex lowercase):**
   `c7c6a21450462cbc3ab9eba66cb46fc1fa55686c524415346dcc58b55d8ae319`
 
-### 6.3 Contas Iniciais Padrão (`ledger_core.accounts`)
+### 7.3 Contas Iniciais Padrão (`ledger_core.accounts`)
 | ID (`UUID`) | `merchant_id` | `account_type` | `holder_name` | Saldo Inicial |
 | :--- | :--- | :--- | :--- | :---: |
 | `00000000-0000-4000-8000-000000000001` | `NULL` | `ESCROW` | `LedgerPulse Clearing Escrow` | `0` |
