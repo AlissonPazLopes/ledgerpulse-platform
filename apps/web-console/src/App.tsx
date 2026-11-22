@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { DashboardPlaceholderPage } from './pages/DashboardPlaceholderPage';
 import { AccountsPage } from './pages/AccountsPage';
+import { FraudReviewCenterPage } from './pages/FraudReviewCenterPage';
 import { LedgerAuditPage } from './pages/LedgerAuditPage';
 import { LoginPage } from './pages/LoginPage';
 import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage';
@@ -20,26 +21,7 @@ export function App() {
               <Route path="/" element={<DashboardPlaceholderPage />} />
               <Route path="/ledger" element={<LedgerAuditPage />} />
               <Route path="/accounts" element={<AccountsPage />} />
-              <Route
-                path="/fraud-review"
-                element={
-                  <ModulePlaceholderPage
-                    title="Central Antifraude"
-                    subtitle="Fila operacional de pagamentos retidos em MANUAL_REVIEW pelo risk-engine-ai ou pelo fallback Resilience4j."
-                    schedule="Semana 3 · Dia 20"
-                    allowedRoles={['ADMIN', 'ANALYST']}
-                    endpoints={[
-                      'GET /api/v1/risk/reviews',
-                      'POST /api/v1/risk/reviews/{paymentId}/decision',
-                    ]}
-                    highlights={[
-                      'Medidor visual de riskScore (0–100) e chips explicáveis de reasonCodes.',
-                      'Modal de decisão APPROVE / DECLINE com justificativa auditável.',
-                      'Bloqueio de ações mutáveis para perfil VIEWER conforme RBAC.',
-                    ]}
-                  />
-                }
-              />
+              <Route path="/fraud-review" element={<FraudReviewCenterPage />} />
               <Route
                 path="/webhooks"
                 element={
