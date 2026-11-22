@@ -59,6 +59,25 @@ services:
     networks:
       - ledgerpulse-net
 
+  risk-engine-ai:
+    build:
+      context: ./services/risk-engine-ai
+      dockerfile: Dockerfile
+    container_name: ledgerpulse-risk-engine
+    restart: unless-stopped
+    environment:
+      RISK_ENGINE_PORT: "8001"
+    ports:
+      - "${RISK_ENGINE_PORT:-8001}:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - ledgerpulse-net
+
 networks:
   ledgerpulse-net:
     name: ledgerpulse-net
