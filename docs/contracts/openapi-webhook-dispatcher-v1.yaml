@@ -1,0 +1,723 @@
+openapi: 3.1.0
+info:
+  title: LedgerPulse Webhook Dispatcher API
+  version: "1.0.0"
+  description: >
+    Contrato REST v1 oficial do microsserviço `webhook-dispatcher` (Java 21 + Virtual Threads + Spring Boot 3.3+ + Spring AMQP).
+    Congelado para Semana 4 no fluxo Contract-First.
+    Segurança: segredos HMAC nunca são retornados em texto puro nas APIs REST (apenas `secretPreview`).
+servers:
+  - url: http://localhost:8082
+    description: Ambiente Local (Docker Compose / Spring Boot)
+tags:
+  - name: Health
+    description: Diagnóstico operacional e status de Virtual Threads
+  - name: Webhook Endpoints
+    description: Cadastro e listagem de endpoints de destino por merchant
+  - name: Webhook Deliveries & DLQ
+    description: Auditoria de tentativas de entrega HMAC-SHA256 e replay manual da DLQ
+  - name: Webhook Sink
+    description: Simulador local Merchant Webhook Sink (OK_200, FAIL_500, TIMEOUT)
+paths:
+  /api/v1/health:
+    get:
+      tags:
+        - Health
+      summary: Healthcheck operacional do webhook-dispatcher
+      operationId: getWebhookDispatcherHealth
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+      responses:
+        "200":
+          description: Serviço operacional
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookHealthResponse"
+  /api/v1/webhooks/endpoints:
+    post:
+      tags:
+        - Webhook Endpoints
+      summary: Cadastra endpoint webhook e secret HMAC-SHA256 de um merchant (ADMIN)
+      operationId: createWebhookEndpoint
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookEndpointRequest"
+      responses:
+        "201":
+          description: Endpoint webhook cadastrado (sem expor secret em texto puro)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags:
+        - Webhook Endpoints
+      summary: Lista endpoints webhook cadastrados paginados
+      operationId: listWebhookEndpoints
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/SizeParam"
+        - name: merchantId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WebhookEndpointStatus"
+      responses:
+        "200":
+          description: Lista paginada de endpoints cadastrados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointPageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/webhooks/deliveries:
+    get:
+      tags:
+        - Webhook Deliveries & DLQ
+      summary: Lista entregas de webhooks e histórico de tentativas HMAC
+      operationId: listWebhookDeliveries
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/SizeParam"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WebhookDeliveryStatus"
+        - name: merchantId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: eventType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: eventId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Lista paginada de entregas e tentativas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/webhooks/dlq/{deliveryId}/replay:
+    post:
+      tags:
+        - Webhook Deliveries & DLQ
+      summary: Executa replay manual de uma entrega em DLQ (ADMIN/ANALYST)
+      operationId: replayDlqDelivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Resultado da tentativa de replay executada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DlqReplayResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/sink/mode:
+    get:
+      tags:
+        - Webhook Sink
+      summary: Consulta modo atual do simulador Merchant Webhook Sink
+      operationId: getSinkMode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+      responses:
+        "200":
+          description: Modo atual do Webhook Sink
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SinkModeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags:
+        - Webhook Sink
+      summary: Altera o modo do simulador Merchant Webhook Sink (ADMIN/ANALYST)
+      operationId: updateSinkMode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSinkModeRequest"
+      responses:
+        "200":
+          description: Modo atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SinkModeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/sink/test:
+    post:
+      tags:
+        - Webhook Sink
+      summary: Endpoint simulador Merchant Webhook Sink (público/dev)
+      operationId: receiveSinkWebhook
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - name: X-LedgerPulse-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-LedgerPulse-Event-Id
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Webhook aceito no modo OK_200
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SinkTestResponse"
+        "500":
+          description: Falha simulada no modo FAIL_500
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SinkTestResponse"
+        "504":
+          description: Timeout simulado no modo TIMEOUT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SinkTestResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      description: Índice da página (base 0)
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    SizeParam:
+      name: size
+      in: query
+      required: false
+      description: Tamanho da página (máximo 100)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    CorrelationIdHeader:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Identificador de correlação distribuída (gerado se omitido)
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Erro de validação ou regra de entrada (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Unauthorized:
+      description: Não autenticado ou JWT inválido/expirado (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Forbidden:
+      description: Acesso negado por RBAC (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    NotFound:
+      description: Recurso não encontrado (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Conflict:
+      description: Entrega fora do estado DLQ (`invalid-delivery-state`, RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    InternalError:
+      description: Erro interno inesperado no servidor (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+  schemas:
+    WebhookHealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - version
+        - virtualThreadsEnabled
+        - timestamp
+      properties:
+        status:
+          type: string
+          example: UP
+        service:
+          type: string
+          example: webhook-dispatcher
+        version:
+          type: string
+          example: "0.1.0"
+        virtualThreadsEnabled:
+          type: boolean
+          example: true
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-11-23T12:00:00Z"
+    WebhookEndpointStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - PAUSED
+    CreateWebhookEndpointRequest:
+      type: object
+      required:
+        - merchantId
+        - targetUrl
+        - secret
+      properties:
+        merchantId:
+          type: string
+          format: uuid
+        targetUrl:
+          type: string
+          format: uri
+          maxLength: 500
+          example: "http://localhost:8082/api/v1/sink/test"
+        secret:
+          type: string
+          minLength: 16
+          maxLength: 255
+          description: Segredo usado para assinar webhooks com HMAC-SHA256
+        description:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+    WebhookEndpointResponse:
+      type: object
+      required:
+        - id
+        - merchantId
+        - targetUrl
+        - secretPreview
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        targetUrl:
+          type: string
+          format: uri
+        secretPreview:
+          type: string
+          description: Prévia mascarada do segredo HMAC (nunca expõe o secret em texto puro)
+          example: whsec_****2026
+        description:
+          type:
+            - string
+            - "null"
+        status:
+          $ref: "#/components/schemas/WebhookEndpointStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WebhookEndpointPageResponse:
+      type: object
+      required:
+        - items
+        - page
+        - size
+        - totalElements
+        - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookEndpointResponse"
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+    WebhookDeliveryStatus:
+      type: string
+      enum:
+        - PENDING
+        - RETRYING
+        - DELIVERED
+        - DLQ
+    WebhookDeliveryAttemptResponse:
+      type: object
+      required:
+        - attemptNumber
+        - latencyMs
+        - signatureHeader
+        - attemptedAt
+      properties:
+        attemptNumber:
+          type: integer
+          format: int32
+          minimum: 1
+        httpStatus:
+          type:
+            - integer
+            - "null"
+          format: int32
+        latencyMs:
+          type: integer
+          format: int64
+          minimum: 0
+        signatureHeader:
+          type: string
+        errorMessage:
+          type:
+            - string
+            - "null"
+        attemptedAt:
+          type: string
+          format: date-time
+    WebhookDeliveryResponse:
+      type: object
+      required:
+        - id
+        - eventId
+        - eventType
+        - merchantId
+        - endpointId
+        - targetUrl
+        - correlationId
+        - status
+        - attemptCount
+        - maxAttempts
+        - createdAt
+        - updatedAt
+        - attempts
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          example: payment.settled
+        merchantId:
+          type: string
+          format: uuid
+        endpointId:
+          type: string
+          format: uuid
+        targetUrl:
+          type: string
+          format: uri
+        correlationId:
+          type: string
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attemptCount:
+          type: integer
+          format: int32
+          minimum: 0
+        maxAttempts:
+          type: integer
+          format: int32
+          minimum: 1
+        lastHttpStatus:
+          type:
+            - integer
+            - "null"
+          format: int32
+        lastLatencyMs:
+          type:
+            - integer
+            - "null"
+          format: int64
+        lastError:
+          type:
+            - string
+            - "null"
+        signatureHeader:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDeliveryAttemptResponse"
+    WebhookDeliveryPageResponse:
+      type: object
+      required:
+        - items
+        - page
+        - size
+        - totalElements
+        - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDeliveryResponse"
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+    DlqReplayResponse:
+      type: object
+      required:
+        - deliveryId
+        - eventId
+        - status
+        - replayedAt
+        - latencyMs
+      properties:
+        deliveryId:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        replayedAt:
+          type: string
+          format: date-time
+        httpStatus:
+          type:
+            - integer
+            - "null"
+          format: int32
+        latencyMs:
+          type: integer
+          format: int64
+          minimum: 0
+        errorMessage:
+          type:
+            - string
+            - "null"
+    SinkMode:
+      type: string
+      enum:
+        - OK_200
+        - FAIL_500
+        - TIMEOUT
+    SinkModeResponse:
+      type: object
+      required:
+        - mode
+        - timeoutDelayMs
+        - updatedAt
+      properties:
+        mode:
+          $ref: "#/components/schemas/SinkMode"
+        timeoutDelayMs:
+          type: integer
+          format: int64
+          example: 2500
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateSinkModeRequest:
+      type: object
+      required:
+        - mode
+      properties:
+        mode:
+          $ref: "#/components/schemas/SinkMode"
+    SinkTestResponse:
+      type: object
+      required:
+        - received
+        - mode
+      properties:
+        received:
+          type: boolean
+        mode:
+          $ref: "#/components/schemas/SinkMode"
+        eventId:
+          type:
+            - string
+            - "null"
+        signaturePresent:
+          type:
+            - boolean
+            - "null"
+        receivedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        error:
+          type:
+            - string
+            - "null"
+    ValidationFieldError:
+      type: object
+      required:
+        - field
+        - message
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+    ProblemDetail:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - correlationId
+        - timestamp
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationFieldError"
