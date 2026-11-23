@@ -58,3 +58,66 @@ export function formatCurrencyFromCents(
     })
     .join('');
 }
+
+/**
+ * Converte uma entrada textual BRL (ex.: "150,00", "1.250,90", "150.00") para centavos inteiros
+ * usando exclusivamente manipulação de strings e inteiros (zero ponto flutuante).
+ */
+export function parseBrlInputToCents(rawInput: string): number | null {
+  const cleaned = rawInput.replace(/R\$/gi, '').replace(/\s+/g, '').trim();
+  if (!cleaned || cleaned.startsWith('-')) {
+    return null;
+  }
+
+  let wholePart = '';
+  let fractionPart = '';
+
+  if (cleaned.includes(',')) {
+    const commaParts = cleaned.split(',');
+    if (commaParts.length !== 2) {
+      return null;
+    }
+    wholePart = commaParts[0].replace(/\./g, '');
+    fractionPart = commaParts[1];
+  } else if (cleaned.includes('.')) {
+    const dotParts = cleaned.split('.');
+    if (dotParts.length === 2 && dotParts[1].length <= 2) {
+      wholePart = dotParts[0];
+      fractionPart = dotParts[1];
+    } else if (dotParts.every((segment, idx) => (idx === 0 ? segment.length >= 1 : segment.length === 3))) {
+      wholePart = dotParts.join('');
+      fractionPart = '';
+    } else {
+      return null;
+    }
+  } else {
+    wholePart = cleaned;
+  }
+
+  if (!/^\d+$/.test(wholePart) || !/^\d{0,2}$/.test(fractionPart)) {
+    return null;
+  }
+
+  const wholeUnits = BigInt(wholePart);
+  const centsRemainder = BigInt(fractionPart.padEnd(2, '0'));
+  const totalCents = wholeUnits * 100n + centsRemainder;
+
+  if (totalCents > BigInt(Number.MAX_SAFE_INTEGER)) {
+    return null;
+  }
+
+  return Number(totalCents);
+}
+
+/**
+ * Calcula o valor inteiro em centavos para uma taxa/percentual em basis points (`bps` de 0..10000)
+ * usando aritmética inteira com truncamento (`BigInt`), idêntica ao `SplitCalculator` do backend.
+ */
+export function computeBpsAmountCents(grossAmountCents: number, bps: number): number {
+  if (!Number.isSafeInteger(grossAmountCents) || !Number.isSafeInteger(bps) || bps < 0) {
+    return 0;
+  }
+  const result = (BigInt(grossAmountCents) * BigInt(bps)) / 10000n;
+  return Number(result);
+}
+
