@@ -78,6 +78,41 @@ services:
     networks:
       - ledgerpulse-net
 
+  webhook-dispatcher:
+    build:
+      context: ./services/webhook-dispatcher
+      dockerfile: Dockerfile
+    container_name: ledgerpulse-webhook-dispatcher
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      WEBHOOK_DISPATCHER_PORT: "8082"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ledgerpulse}
+      POSTGRES_USER: ${POSTGRES_USER:-ledgerpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ledgerpulse_dev}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-ledgerpulse}
+      RABBITMQ_PASS: ${RABBITMQ_DEFAULT_PASS:-ledgerpulse_dev}
+      LEDGERPULSE_JWT_SECRET: ${LEDGERPULSE_JWT_SECRET:-ledgerpulse-dev-jwt-secret-key-at-least-32-bytes-long-2026}
+      WEBHOOK_DEFAULT_SINK_URL: http://webhook-dispatcher:8082/api/v1/sink/test
+    ports:
+      - "${WEBHOOK_DISPATCHER_PORT:-8082}:8082"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - ledgerpulse-net
+
 networks:
   ledgerpulse-net:
     name: ledgerpulse-net
