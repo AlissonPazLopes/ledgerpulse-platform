@@ -1,8 +1,9 @@
 .DEFAULT_GOAL := help
 
 COMPOSE := docker compose
+PYTHON ?= python3
 
-.PHONY: help up down down-v ps logs restart validate health
+.PHONY: help up down down-v ps logs restart validate health e2e
 
 help:
 	@echo "LedgerPulse Platform - Comandos de Infraestrutura"
@@ -14,6 +15,7 @@ help:
 	@echo "  make health    - Exibe estado de saude (healthcheck) dos containers"
 	@echo "  make logs      - Acompanha logs em tempo real (--tail=100)"
 	@echo "  make restart   - Reinicia os containers da stack"
+	@echo "  make e2e       - Executa fluxo E2E (Pagamento -> Ledger -> DLQ -> Replay)"
 
 validate:
 	$(COMPOSE) config --quiet
@@ -38,3 +40,6 @@ logs:
 
 restart:
 	$(COMPOSE) restart
+
+e2e:
+	$(PYTHON) infra/scripts/e2e_payment_dlq_flow.py
