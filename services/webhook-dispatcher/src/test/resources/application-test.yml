@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:ledgerpulse_webhooks_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS webhooks
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: true
+    schemas: webhooks
+    default-schema: webhooks
+    create-schemas: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: webhooks
+  rabbitmq:
+    dynamic: false
+    listener:
+      simple:
+        auto-startup: false
+      direct:
+        auto-startup: false
+
+management:
+  health:
+    rabbit:
+      enabled: false
+
+app:
+  webhook:
+    http:
+      connect-timeout-ms: 500
+      read-timeout-ms: 200
+  sink:
+    timeout-delay-ms: 350
