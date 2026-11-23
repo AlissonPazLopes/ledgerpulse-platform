@@ -26,6 +26,9 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
 
+      - name: Self-test E2E script
+        run: python3 infra/scripts/e2e_payment_dlq_flow.py --self-test
+
   ledger-core-api:
     name: Build & Test ledger-core-api (Java 21)
     runs-on: ubuntu-latest
@@ -98,3 +101,24 @@ jobs:
 
       - name: Run Pytest suite
         run: pytest -v
+
+  webhook-dispatcher:
+    name: Build & Test webhook-dispatcher (Java 21)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/webhook-dispatcher
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+          cache-dependency-path: services/webhook-dispatcher/pom.xml
+
+      - name: Run Maven tests
+        run: mvn -B test
