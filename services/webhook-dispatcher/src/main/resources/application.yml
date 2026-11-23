@@ -1,0 +1,68 @@
+server:
+  port: ${WEBHOOK_DISPATCHER_PORT:8082}
+
+spring:
+  application:
+    name: webhook-dispatcher
+  threads:
+    virtual:
+      enabled: true
+  profiles:
+    default: dev
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ledgerpulse}
+    username: ${POSTGRES_USER:ledgerpulse}
+    password: ${POSTGRES_PASSWORD:ledgerpulse_dev}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    schemas: webhooks
+    default-schema: webhooks
+    create-schemas: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: webhooks
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:${RABBITMQ_AMQP_PORT:5672}}
+    username: ${RABBITMQ_USER:${RABBITMQ_DEFAULT_USER:ledgerpulse}}
+    password: ${RABBITMQ_PASS:${RABBITMQ_DEFAULT_PASS:ledgerpulse_dev}}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  version: "0.1.0"
+  security:
+    jwt:
+      secret: ${LEDGERPULSE_JWT_SECRET:ledgerpulse-dev-jwt-secret-key-at-least-32-bytes-long-2026}
+      expiration-seconds: 3600
+  webhook:
+    http:
+      connect-timeout-ms: 1500
+      read-timeout-ms: 2000
+  sink:
+    timeout-delay-ms: 2500
+    default-target-url: ${WEBHOOK_DEFAULT_SINK_URL:http://localhost:8082/api/v1/sink/test}
+
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-}]"

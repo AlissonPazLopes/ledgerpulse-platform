@@ -1,8 +1,9 @@
 # 🌐 Contratos REST v1 (`api-v1-overview.md`)
 
-> **Versão do Contrato:** `v1.0-frozen` (Semanas 1, 2 e 3 congeladas)  
+> **Versão do Contrato:** `v1.0-frozen` (Semanas 1, 2, 3 e 4 congeladas)  
 > **Especificação OpenAPI (`ledger-core-api`):** [openapi-ledger-core-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-ledger-core-v1.yaml)  
 > **Especificação OpenAPI (`risk-engine-ai`):** [openapi-risk-engine-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-risk-engine-v1.yaml)  
+> **Especificação OpenAPI (`webhook-dispatcher`):** [openapi-webhook-dispatcher-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-webhook-dispatcher-v1.yaml)  
 > **Fixture de Contrato Cruzado (`risk-engine-ai`):** [risk-evaluate-contract.json](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/contract-samples/risk-evaluate-contract.json)  
 > **Responsável:** Chat 01 (Arquiteto de Software & Contratos)  
 > **Padrão de Erro:** RFC 7807 / RFC 9457 (`application/problem+json`)
@@ -59,9 +60,10 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 | `invalid-credentials` | `https://ledgerpulse.dev/errors/invalid-credentials` | `401` | `Invalid Credentials` | Email ou senha incorretos no `POST /api/v1/auth/login`. |
 | `unauthorized` | `https://ledgerpulse.dev/errors/unauthorized` | `401` | `Unauthorized` | JWT ausente/expirado/inválido ou `X-API-Key` ausente/inválida. |
 | `forbidden` | `https://ledgerpulse.dev/errors/forbidden` | `403` | `Forbidden` | Usuário autenticado sem a role exigida (ex.: `ANALYST`/`VIEWER` em rota exclusiva `ADMIN`) ou acesso a recurso de outro merchant. |
-| `resource-not-found` | `https://ledgerpulse.dev/errors/resource-not-found` | `404` | `Resource Not Found` | Entidade (`account`, `payment`, `ledgerTransaction`, `merchant`) não encontrada. |
+| `resource-not-found` | `https://ledgerpulse.dev/errors/resource-not-found` | `404` | `Resource Not Found` | Entidade (`account`, `payment`, `ledgerTransaction`, `merchant`, `webhookEndpoint`, `webhookDelivery`) não encontrada. |
 | `idempotency-conflict` | `https://ledgerpulse.dev/errors/idempotency-conflict` | `409` | `Idempotency Key Conflict` | **Decisão congelada (`409` em vez de `422`):** mesma `Idempotency-Key` reutilizada com payload divergente (ou requisição concorrente ainda em processamento). |
 | `invalid-payment-state` | `https://ledgerpulse.dev/errors/invalid-payment-state` | `409` | `Invalid Payment State` | Transição de estado inválida ou tentativa de decisão manual quando o pagamento não se encontra em `MANUAL_REVIEW`. |
+| `invalid-delivery-state` | `https://ledgerpulse.dev/errors/invalid-delivery-state` | `409` | `Invalid Delivery State` | Tentativa de replay manual na DLQ quando a entrega não se encontra no estado `DLQ`. |
 | `optimistic-lock-conflict` | `https://ledgerpulse.dev/errors/optimistic-lock-conflict` | `409` | `Optimistic Lock Conflict` | Colisão de `@Version` em atualização concorrente de conta ou pagamento. |
 | `rate-limit-exceeded` | `https://ledgerpulse.dev/errors/rate-limit-exceeded` | `429` | `Rate Limit Exceeded` | Limite do Token Bucket no Redis excedido para a `X-API-Key`. |
 | `internal-error` | `https://ledgerpulse.dev/errors/internal-error` | `500` | `Internal Server Error` | Falha inesperada não tratada (sem vazar stacktrace ou segredos ao cliente). |
@@ -639,15 +641,200 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 
 ---
 
-## 6. Endpoints Principais — `webhook-dispatcher` (`:8082`) — Semana 4
+## 6. Contratos JSON Congelados — `webhook-dispatcher` (`:8082`) — Semana 4
 
-> **Regra de Naming:** todos os JSONs em **`camelCase`** e parâmetro de rota oficial **`{deliveryId}`** para replay de DLQ.
+> **Especificação OpenAPI (`webhook-dispatcher`):** [openapi-webhook-dispatcher-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-webhook-dispatcher-v1.yaml)  
+> **Regra de Naming e Segurança:** todos os JSONs em **`camelCase`**, erros em RFC 7807 `ProblemDetail` (`application/problem+json`), parâmetro de rota oficial **`{deliveryId}`** para replay de DLQ e **proibição estrita de expor o `secret` em texto puro** nas respostas REST (expor apenas `secretPreview` mascarado).
+
+### 6.1 Mapa de Endpoints — `webhook-dispatcher`
 
 | Método & Rota | Auth / Role | Resumo |
 | :--- | :--- | :--- |
-| `POST /api/v1/webhooks/endpoints` | JWT (`ADMIN`) | Cadastra URL de destino e *secret* HMAC-SHA256 de um merchant. |
-| `GET /api/v1/webhooks/endpoints` | JWT | Lista endpoints cadastrados e status (`ACTIVE`/`PAUSED`). |
-| `GET /api/v1/webhooks/deliveries` | JWT | Lista histórico paginado de tentativas de entrega (`PENDING`, `DELIVERED`, `RETRYING`, `DLQ`), latência e código HTTP. |
-| `POST /api/v1/webhooks/dlq/{deliveryId}/replay` | JWT (`ADMIN`/`ANALYST`) | Reenfileira manualmente uma entrega que caiu em DLQ para nova tentativa imediata. |
-| `POST /api/v1/sink/test` | Público / Dev | Simulador local (**Merchant Webhook Sink**) configurável (`OK_200`, `FAIL_500`, `TIMEOUT`) para demonstrar retries e DLQ sem depender de serviço externo. |
-| `PUT /api/v1/sink/mode` | JWT / Dev | Alterna o comportamento do Webhook Sink (`OK_200`, `FAIL_500`, `TIMEOUT`). |
+| `GET /api/v1/health` | Público | Status operacional, versão e indicação de Virtual Threads habilitadas. |
+| `POST /api/v1/webhooks/endpoints` | JWT (`ADMIN`) | Cadastra URL de destino e *secret* HMAC-SHA256 de um merchant (`201 Created`). |
+| `GET /api/v1/webhooks/endpoints` | JWT | Lista endpoints cadastrados paginados (`PageResponse`), com filtros opcionais `merchantId` e `status`. |
+| `GET /api/v1/webhooks/deliveries` | JWT | Lista entregas paginadas (`PageResponse`) com histórico detalhado de `attempts`, latência, status HTTP e assinatura HMAC. |
+| `POST /api/v1/webhooks/dlq/{deliveryId}/replay` | JWT (`ADMIN`/`ANALYST`) | Reenfileira/executa replay imediato de uma entrega em estado `DLQ` (`409 invalid-delivery-state` caso não esteja em `DLQ`, `404` se inexistente). |
+| `GET /api/v1/sink/mode` | JWT | Consulta o modo atual do simulador **Merchant Webhook Sink**. |
+| `PUT /api/v1/sink/mode` | JWT (`ADMIN`/`ANALYST`) | Alterna o comportamento do Webhook Sink (`OK_200`, `FAIL_500`, `TIMEOUT`). |
+| `POST /api/v1/sink/test` | Público / Dev | Simulador local (**Merchant Webhook Sink**) que recebe webhooks assinados com `X-LedgerPulse-Signature`, `X-LedgerPulse-Event-Id` e `X-Correlation-Id`. |
+
+### 6.2 `GET /api/v1/health` (Público)
+
+**Response `200 OK`:**
+```json
+{
+  "status": "UP",
+  "service": "webhook-dispatcher",
+  "version": "0.1.0",
+  "virtualThreadsEnabled": true,
+  "timestamp": "2026-11-23T12:00:00Z"
+}
+```
+
+### 6.3 `POST /api/v1/webhooks/endpoints` (JWT `ADMIN`) e `GET /api/v1/webhooks/endpoints` (JWT)
+
+- Token com role `ANALYST` ou `VIEWER` no `POST` → `403 Forbidden` (`forbidden`).
+- **Nunca** retornar `secret` em texto puro na resposta (retornar apenas `secretPreview`, ex.: `"whsec_****2026"`).
+
+**Request (`POST /api/v1/webhooks/endpoints`):**
+```json
+{
+  "merchantId": "7b92c3e0-1f42-4876-a1e2-901283471234",
+  "targetUrl": "http://localhost:8082/api/v1/sink/test",
+  "secret": "whsec_ledgerpulse_dev_secret_2026",
+  "description": "Merchant Webhook Sink Local"
+}
+```
+
+**Response `201 Created` (`POST /api/v1/webhooks/endpoints`):**
+```json
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "merchantId": "7b92c3e0-1f42-4876-a1e2-901283471234",
+  "targetUrl": "http://localhost:8082/api/v1/sink/test",
+  "secretPreview": "whsec_****2026",
+  "description": "Merchant Webhook Sink Local",
+  "status": "ACTIVE",
+  "createdAt": "2026-11-23T12:00:00Z",
+  "updatedAt": "2026-11-23T12:00:00Z"
+}
+```
+
+**Query params opcionais (`GET /api/v1/webhooks/endpoints`):** `page` (`0`), `size` (`20`), `merchantId` (`UUID`), `status` (`ACTIVE` | `PAUSED`).
+
+**Response `200 OK` (`GET /api/v1/webhooks/endpoints`):**
+```json
+{
+  "items": [
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "merchantId": "7b92c3e0-1f42-4876-a1e2-901283471234",
+      "targetUrl": "http://localhost:8082/api/v1/sink/test",
+      "secretPreview": "whsec_****2026",
+      "description": "Merchant Webhook Sink Local",
+      "status": "ACTIVE",
+      "createdAt": "2026-11-23T12:00:00Z",
+      "updatedAt": "2026-11-23T12:00:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### 6.4 `GET /api/v1/webhooks/deliveries` (JWT)
+
+**Query params opcionais:** `page` (`0`), `size` (`20`), `status` (`PENDING` | `RETRYING` | `DELIVERED` | `DLQ`), `merchantId` (`UUID`), `eventType` (`string`), `eventId` (`UUID`).
+
+**Response `200 OK`:**
+```json
+{
+  "items": [
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "eventId": "c7a615f1-82b3-4e11-9c2a-5d2d1b63e701",
+      "eventType": "payment.settled",
+      "merchantId": "7b92c3e0-1f42-4876-a1e2-901283471234",
+      "endpointId": "33333333-3333-4333-8333-333333333333",
+      "targetUrl": "http://localhost:8082/api/v1/sink/test",
+      "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+      "status": "DLQ",
+      "attemptCount": 4,
+      "maxAttempts": 4,
+      "lastHttpStatus": 500,
+      "lastLatencyMs": 18,
+      "lastError": "HTTP 500 Internal Server Error from target endpoint",
+      "signatureHeader": "t=1763900400,v1=3b8f6e1c2a9d4e7f0123456789abcdef0123456789abcdef0123456789abcdef",
+      "createdAt": "2026-11-23T12:00:00Z",
+      "updatedAt": "2026-11-23T12:02:35Z",
+      "deliveredAt": null,
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "httpStatus": 500,
+          "latencyMs": 14,
+          "signatureHeader": "t=1763900245,v1=1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+          "errorMessage": "HTTP 500 Internal Server Error from target endpoint",
+          "attemptedAt": "2026-11-23T12:00:00Z"
+        }
+      ]
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### 6.5 `POST /api/v1/webhooks/dlq/{deliveryId}/replay` (JWT `ADMIN` ou `ANALYST`; `VIEWER` → `403 Forbidden`)
+
+- Se `deliveryId` não existir → `404 Not Found` (`resource-not-found`).
+- Se a entrega não estiver em `DLQ` → `409 Conflict` (`invalid-delivery-state`).
+
+**Response `200 OK`:**
+```json
+{
+  "deliveryId": "44444444-4444-4444-8444-444444444444",
+  "eventId": "c7a615f1-82b3-4e11-9c2a-5d2d1b63e701",
+  "status": "DELIVERED",
+  "replayedAt": "2026-11-23T12:05:00Z",
+  "httpStatus": 200,
+  "latencyMs": 11,
+  "errorMessage": null
+}
+```
+
+### 6.6 `GET /api/v1/sink/mode`, `PUT /api/v1/sink/mode` e `POST /api/v1/sink/test`
+
+#### `GET /api/v1/sink/mode` (JWT) e `PUT /api/v1/sink/mode` (JWT `ADMIN` ou `ANALYST`; `VIEWER` → `403 Forbidden`)
+
+**Request (`PUT /api/v1/sink/mode`):**
+```json
+{
+  "mode": "FAIL_500"
+}
+```
+
+**Response `200 OK` (`GET` e `PUT /api/v1/sink/mode`):**
+```json
+{
+  "mode": "FAIL_500",
+  "timeoutDelayMs": 2500,
+  "updatedAt": "2026-11-23T12:00:00Z"
+}
+```
+
+#### `POST /api/v1/sink/test` (Público / Dev — Merchant Webhook Sink)
+Recebe o payload JSON do evento assinado com os headers `X-LedgerPulse-Signature`, `X-LedgerPulse-Event-Id` e `X-Correlation-Id`:
+- Quando `mode == "OK_200"` → responde **`200 OK`** imediatamente:
+```json
+{
+  "received": true,
+  "mode": "OK_200",
+  "eventId": "c7a615f1-82b3-4e11-9c2a-5d2d1b63e701",
+  "signaturePresent": true,
+  "receivedAt": "2026-11-23T12:05:00Z"
+}
+```
+- Quando `mode == "FAIL_500"` → responde **`500 Internal Server Error`**:
+```json
+{
+  "received": false,
+  "mode": "FAIL_500",
+  "eventId": "c7a615f1-82b3-4e11-9c2a-5d2d1b63e701",
+  "error": "Simulated merchant webhook sink failure (HTTP 500)"
+}
+```
+- Quando `mode == "TIMEOUT"` → aguarda `timeoutDelayMs` (`2500` ms, acima do timeout HTTP padrão do dispatcher) e responde **`504 Gateway Timeout`**:
+```json
+{
+  "received": false,
+  "mode": "TIMEOUT",
+  "eventId": "c7a615f1-82b3-4e11-9c2a-5d2d1b63e701",
+  "error": "Simulated merchant webhook sink timeout (HTTP 504)"
+}
+```

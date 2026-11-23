@@ -14,6 +14,13 @@ export interface HttpRequestOptions {
   signal?: AbortSignal;
 }
 
+export interface HttpResponseWithMeta<T> {
+  data: T;
+  status: number;
+  correlationId: string;
+  headers: Headers;
+}
+
 const CORE_API_BASE_URL = (import.meta.env.VITE_CORE_API_URL ?? '').replace(/\/+$/, '');
 const WEBHOOK_API_BASE_URL = (
   import.meta.env.VITE_WEBHOOK_API_URL ?? 'http://localhost:8082'
@@ -149,10 +156,10 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   }
 }
 
-export async function httpRequest<T>(
+export async function httpRequestWithMeta<T>(
   path: string,
   options: HttpRequestOptions = {},
-): Promise<T> {
+): Promise<HttpResponseWithMeta<T>> {
   const {
     method = 'GET',
     body,
@@ -193,12 +200,13 @@ export async function httpRequest<T>(
       signal,
     });
   } catch {
+    const targetServiceName =
+      service === 'webhook' ? 'webhook-dispatcher' : 'ledger-core-api';
     throw new ApiError({
       type: 'https://ledgerpulse.dev/errors/network-error',
       title: 'Service Unavailable',
       status: 0,
-      detail:
-        'Não foi possível conectar ao servidor da API. Verifique se o ledger-core-api está ativo.',
+      detail: `Não foi possível conectar ao servidor da API. Verifique se o ${targetServiceName} está ativo.`,
       instance: path,
       correlationId,
       timestamp: new Date().toISOString(),
@@ -231,11 +239,29 @@ export async function httpRequest<T>(
   }
 
   if (response.status === 204) {
-    return undefined as T;
+    return {
+      data: undefined as T,
+      status: response.status,
+      correlationId: responseCorrelationId,
+      headers: response.headers,
+    };
   }
 
   const parsedBody = await parseResponseBody(response);
-  return parsedBody as T;
+  return {
+    data: parsedBody as T,
+    status: response.status,
+    correlationId: responseCorrelationId,
+    headers: response.headers,
+  };
+}
+
+export async function httpRequest<T>(
+  path: string,
+  options: HttpRequestOptions = {},
+): Promise<T> {
+  const response = await httpRequestWithMeta<T>(path, options);
+  return response.data;
 }
 
 export const httpClient = {
@@ -248,6 +274,13 @@ export const httpClient = {
     options: Omit<HttpRequestOptions, 'method' | 'body'> = {},
   ): Promise<T> {
     return httpRequest<T>(path, { ...options, method: 'POST', body });
+  },
+  postWithMeta<T>(
+    path: string,
+    body?: unknown,
+    options: Omit<HttpRequestOptions, 'method' | 'body'> = {},
+  ): Promise<HttpResponseWithMeta<T>> {
+    return httpRequestWithMeta<T>(path, { ...options, method: 'POST', body });
   },
   put<T>(
     path: string,

@@ -4,10 +4,12 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { DashboardPlaceholderPage } from './pages/DashboardPlaceholderPage';
 import { AccountsPage } from './pages/AccountsPage';
+import { CheckoutSimulatorPage } from './pages/CheckoutSimulatorPage';
 import { FraudReviewCenterPage } from './pages/FraudReviewCenterPage';
 import { LedgerAuditPage } from './pages/LedgerAuditPage';
 import { LoginPage } from './pages/LoginPage';
 import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage';
+import { WebhooksConsolePage } from './pages/WebhooksConsolePage';
 
 export function App() {
   return (
@@ -22,50 +24,8 @@ export function App() {
               <Route path="/ledger" element={<LedgerAuditPage />} />
               <Route path="/accounts" element={<AccountsPage />} />
               <Route path="/fraud-review" element={<FraudReviewCenterPage />} />
-              <Route
-                path="/webhooks"
-                element={
-                  <ModulePlaceholderPage
-                    title="Console de Webhooks & DLQ"
-                    subtitle="Administração de destinos HMAC-SHA256, seletor de modo do Webhook Sink local e reprocessamento manual de mensagens em DLQ."
-                    schedule="Semana 4 · Dia 26"
-                    allowedRoles={['ADMIN', 'ANALYST']}
-                    endpoints={[
-                      'GET /api/v1/webhooks/endpoints',
-                      'POST /api/v1/webhooks/endpoints',
-                      'GET /api/v1/webhooks/deliveries',
-                      'POST /api/v1/webhooks/dlq/{deliveryId}/replay',
-                      'PUT /api/v1/sink/mode',
-                    ]}
-                    highlights={[
-                      'Histórico de tentativas de entrega com latência, código HTTP e assinatura HMAC.',
-                      'Controle do Webhook Sink (OK_200, FAIL_500, TIMEOUT) para demonstrações.',
-                      'Replay manual de DLQ em 1 clique usando {deliveryId}.',
-                    ]}
-                  />
-                }
-              />
-              <Route
-                path="/checkout-simulator"
-                element={
-                  <ModulePlaceholderPage
-                    title="Simulador de Checkout & Split"
-                    subtitle="Laboratório interativo de criação de cobranças com cálculo de split percentual/fixo e validação de Idempotency-Key."
-                    schedule="Semana 4 · Dia 27"
-                    allowedRoles={['ADMIN', 'ANALYST']}
-                    endpoints={[
-                      'POST /api/v1/payments',
-                      'GET /api/v1/payments/{id}',
-                      'POST /api/v1/payments/{id}/refunds',
-                    ]}
-                    highlights={[
-                      'Construção dinâmica de splits PERCENTAGE (percentageBps) ou FIXED (amountCents).',
-                      'Reenvio controlado com a mesma Idempotency-Key para testar replay idempotente e conflito 409.',
-                      'Linha do tempo visual: Risco -> Ledger -> Outbox -> Webhook.',
-                    ]}
-                  />
-                }
-              />
+              <Route path="/webhooks" element={<WebhooksConsolePage />} />
+              <Route path="/checkout-simulator" element={<CheckoutSimulatorPage />} />
               <Route
                 path="/reconciliation"
                 element={

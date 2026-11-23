@@ -191,4 +191,92 @@ export interface RiskReviewDecisionResponse {
   reviewedAt: string;
 }
 
+export type WebhookEndpointStatus = 'ACTIVE' | 'PAUSED';
+
+export interface WebhookEndpoint {
+  id: string;
+  merchantId: string;
+  targetUrl: string;
+  secretPreview: string;
+  description?: string | null;
+  status: WebhookEndpointStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateWebhookEndpointRequest {
+  merchantId: string;
+  targetUrl: string;
+  secret: string;
+  description?: string | null;
+}
+
+export type WebhookDeliveryStatus = 'PENDING' | 'RETRYING' | 'DELIVERED' | 'DLQ';
+
+export interface WebhookDeliveryAttempt {
+  attemptNumber: number;
+  httpStatus?: number | null;
+  latencyMs: number;
+  signatureHeader: string;
+  errorMessage?: string | null;
+  attemptedAt: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  eventId: string;
+  eventType: string;
+  merchantId: string;
+  endpointId: string;
+  targetUrl: string;
+  correlationId: string;
+  status: WebhookDeliveryStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  lastHttpStatus?: number | null;
+  lastLatencyMs?: number | null;
+  lastError?: string | null;
+  signatureHeader?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deliveredAt?: string | null;
+  attempts: WebhookDeliveryAttempt[];
+}
+
+export interface DlqReplayResponse {
+  deliveryId: string;
+  eventId: string;
+  status: WebhookDeliveryStatus;
+  replayedAt: string;
+  httpStatus?: number | null;
+  latencyMs: number;
+  errorMessage?: string | null;
+}
+
+export type SinkMode = 'OK_200' | 'FAIL_500' | 'TIMEOUT';
+
+export interface SinkModeResponse {
+  mode: SinkMode;
+  timeoutDelayMs: number;
+  updatedAt: string;
+}
+
+export interface CreatePaymentSplitInput {
+  recipientAccountId: string;
+  splitType: SplitType;
+  percentageBps?: number | null;
+  amountCents?: number | null;
+}
+
+export interface CreatePaymentRequest {
+  merchantId?: string | null;
+  payerId: string;
+  amountCents: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  description?: string | null;
+  splits?: CreatePaymentSplitInput[];
+}
+
+
 
