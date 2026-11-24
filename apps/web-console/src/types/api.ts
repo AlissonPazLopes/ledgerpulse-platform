@@ -278,5 +278,104 @@ export interface CreatePaymentRequest {
   splits?: CreatePaymentSplitInput[];
 }
 
+export interface HourlySeriesPoint {
+  hourLabel: string;
+  volumeCents: number;
+  paymentCount: number;
+  averageRiskScore: number;
+}
+
+export interface DashboardSummaryResponse {
+  tpvCents: number;
+  totalPayments: number;
+  settledCount: number;
+  manualReviewCount: number;
+  declinedCount: number;
+  refundedCount: number;
+  totalRefundedCents: number;
+  approvalRateBps: number;
+  averageRiskScore: number;
+  hourlySeries: HourlySeriesPoint[];
+  generatedAt: string;
+}
+
+export type SseDomainEventType =
+  | 'payment.settled'
+  | 'payment.manual_review_required'
+  | 'payment.declined'
+  | 'payment.refunded'
+  | 'risk.feedback.recorded'
+  | 'reconciliation.completed';
+
+export interface SseDomainEvent {
+  eventId: string;
+  eventType: SseDomainEventType;
+  schemaVersion: string;
+  occurredAt: string;
+  correlationId: string;
+  merchantId?: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface SseControlEvent {
+  eventType: 'connected' | 'heartbeat';
+  timestamp: string;
+  message: string;
+}
+
+export interface CreateRefundRequest {
+  amountCents?: number | null;
+  reason: string;
+}
+
+export interface RecipientReversal {
+  recipientAccountId: string;
+  amountCents: number;
+}
+
+export interface RefundResponse {
+  refundId: string;
+  paymentId: string;
+  ledgerTransactionId: string;
+  amountCents: number;
+  platformFeeReversedCents: number;
+  netMerchantReversedCents: number;
+  recipientReversals: RecipientReversal[];
+  paymentStatus: 'PARTIALLY_REFUNDED' | 'REFUNDED';
+  totalRefundedCents: number;
+  remainingRefundableCents: number;
+  reason: string;
+  idempotencyKey: string;
+  correlationId: string;
+  createdAt: string;
+}
+
+export interface RefundListResponse {
+  items: RefundResponse[];
+}
+
+export type ReconciliationStatus = 'BALANCED' | 'DIVERGENT';
+
+export type ReconciliationTrigger = 'MANUAL' | 'SCHEDULED';
+
+export interface ReconciliationReportResponse {
+  id: string;
+  status: ReconciliationStatus;
+  checkedAccountsCount: number;
+  divergentAccountsCount: number;
+  checkedTransactionsCount: number;
+  unbalancedTransactionsCount: number;
+  totalSettledPaymentsCents: number;
+  totalLedgerSettlementsCents: number;
+  totalRefundsCents: number;
+  totalLedgerRefundsCents: number;
+  discrepancyCents: number;
+  triggerSource: ReconciliationTrigger;
+  findings: string[];
+  correlationId: string;
+  createdAt: string;
+}
+
+
 
 
