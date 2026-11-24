@@ -1,13 +1,23 @@
 import { httpClient } from '../lib/httpClient';
 import type {
   CreatePaymentRequest,
+  CreateRefundRequest,
   PageResponse,
   Payment,
   PaymentStatus,
+  RefundListResponse,
+  RefundResponse,
 } from '../types/api';
 
 export interface CreatePaymentResult {
   payment: Payment;
+  status: number;
+  idempotentReplay: boolean;
+  correlationId: string;
+}
+
+export interface CreateRefundResult {
+  refund: RefundResponse;
   status: number;
   idempotentReplay: boolean;
   correlationId: string;
@@ -65,5 +75,39 @@ export const paymentsService = {
     return httpClient.get<Payment>(`/api/v1/payments/${encodeURIComponent(id)}`, {
       service: 'core',
     });
+  },
+
+  async createRefund(
+    paymentId: string,
+    payload: CreateRefundRequest,
+    idempotencyKey: string,
+  ): Promise<CreateRefundResult> {
+    const response = await httpClient.postWithMeta<RefundResponse>(
+      `/api/v1/payments/${encodeURIComponent(paymentId)}/refunds`,
+      payload,
+      {
+        service: 'core',
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    );
+
+    return {
+      refund: response.data,
+      status: response.status,
+      idempotentReplay:
+        response.headers.get('x-idempotent-replay')?.toLowerCase() === 'true',
+      correlationId: response.correlationId,
+    };
+  },
+
+  listRefunds(paymentId: string): Promise<RefundListResponse> {
+    return httpClient.get<RefundListResponse>(
+      `/api/v1/payments/${encodeURIComponent(paymentId)}/refunds`,
+      {
+        service: 'core',
+      },
+    );
   },
 };

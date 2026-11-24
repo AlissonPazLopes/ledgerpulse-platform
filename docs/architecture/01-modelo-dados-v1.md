@@ -1,6 +1,6 @@
 # 🗄️ 01 — Modelagem Conceitual de Dados v1 (`ledger_core`)
 
-> **Versão:** `v1.2-frozen` (Semanas 1, 2 e 3 · Inclui Outbox V3 e Risk Review Decisions V4)  
+> **Versão:** `v1.3-frozen` (Semanas 1, 2, 3 e 5 · Inclui Outbox V3, Risk Review Decisions V4, Refunds/Reconciliation V5 e Performance Indexes V6)  
 > **Responsável:** Chat 01 (Arquiteto de Software & Contratos)  
 > **Banco Alvo:** PostgreSQL 16 · Database `ledgerpulse` · Schema `ledger_core` (conforme decisão fechada em [STATUS.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/STATUS.md) e [01-create-schemas.sql](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/infra/postgres/init/01-create-schemas.sql))
 
@@ -88,15 +88,34 @@ erDiagram
         varchar resulting_status
         timestamp created_at
     }
+    PAYMENT_REFUNDS {
+        uuid id PK
+        uuid payment_id FK
+        uuid merchant_id FK
+        uuid ledger_transaction_id FK
+        bigint amount_cents
+        varchar idempotency_key
+        timestamp created_at
+    }
+    RECONCILIATION_REPORTS {
+        uuid id PK
+        varchar status
+        varchar trigger_source
+        bigint discrepancy_cents
+        timestamp created_at
+    }
 
     MERCHANTS ||--o{ ACCOUNTS : possui
     MERCHANTS ||--o{ PAYMENTS : origina
+    MERCHANTS ||--o{ PAYMENT_REFUNDS : estorna
     MERCHANTS ||--o{ OUTBOX_EVENTS : referencia
     PAYMENTS ||--o{ PAYMENT_SPLITS : divide
+    PAYMENTS ||--o{ PAYMENT_REFUNDS : reverte
     PAYMENTS ||--o| RISK_REVIEW_DECISIONS : revisado_por
     USERS ||--o{ RISK_REVIEW_DECISIONS : decide
     ACCOUNTS ||--o{ PAYMENT_SPLITS : recebe
     LEDGER_TRANSACTIONS ||--o| PAYMENTS : liquida
+    LEDGER_TRANSACTIONS ||--o| PAYMENT_REFUNDS : compensa
     LEDGER_TRANSACTIONS ||--|{ LEDGER_ENTRIES : compoe
     ACCOUNTS ||--o{ LEDGER_ENTRIES : movimenta
 ```
@@ -311,27 +330,104 @@ Registro auditável da decisão humana (`APPROVE` / `DECLINE`) tomada por analis
 
 ---
 
-## 6. Nota de Portabilidade DDL (PostgreSQL 16 ↔ H2 `2.2.224` `MODE=PostgreSQL`)
+## 6. Migration `V5__create_refunds_and_reconciliation.sql` (Dias 30–31 — Estornos Compensatórios & Conciliação)
 
-Para que os testes automatizados (`mvn test` usando H2 em memória e `mvn verify` com Testcontainers) executem **exatamente as mesmas migrations Flyway `V1`, `V2`, `V3` e `V4`** sem falhas de sintaxe:
+### 6.1 `ledger_core.payment_refunds` (Append-Only)
+Registra cada estorno total ou parcial de pagamento liquidado, sempre vinculado a uma transação contábil compensatória imutável (`PAYMENT_REFUND`) em `ledger_transactions`/`ledger_entries`.
 
-1. **JDBC URL recomendada para `application-test.yml` (H2):**
-   `jdbc:h2:mem:ledgerpulse_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS ledger_core`
-2. **Qualificação explícita de schema:** todas as tabelas e FKs nas migrations usam o prefixo `ledger_core.` (com `spring.flyway.schemas=ledger_core` e `spring.jpa.properties.hibernate.default_schema=ledger_core`). Não usar comandos exclusivos como `SET search_path` dentro de `V1`/`V2`/`V3`/`V4`.
-3. **Tipos de data e texto portáteis (Regra Obrigatória):**
-   - Usar **sempre `TIMESTAMP WITH TIME ZONE`** e **nunca `TIMESTAMPTZ`** no DDL (garante compatibilidade estrita com H2 `2.2.224` `MODE=PostgreSQL` e PostgreSQL 16), sempre com `DEFAULT CURRENT_TIMESTAMP` (evitar `NOW()` ou casts `::jsonb`).
-   - Usar `TEXT` para `reason_codes_json` (`V2`) e `payload_json` (`V3`) em vez de `JSONB` (evita divergência de dialeto no H2).
-   - Usar `VARCHAR(3)` em vez de `CHAR(3)` para `currency` (evita padding inconsistente entre JDBC drivers).
-4. **Geração de UUID na aplicação:** não utilizar `CREATE EXTENSION pgcrypto/uuid-ossp` nem `DEFAULT gen_random_uuid()` no DDL; todos os UUIDs são atribuídos no Java (`UUID.randomUUID()`).
-5. **Índices com ordenação:** índices simples e compostos (`ASC`/`DESC`) descritos acima funcionam tanto em PostgreSQL 16 quanto no H2 `2.2.224` em `MODE=PostgreSQL`.
+| Coluna | Tipo SQL | Restrições / Default | Descrição |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY` | Identificador único do estorno (`refundId`). |
+| `payment_id` | `UUID` | `NOT NULL REFERENCES ledger_core.payments(id)` | Pagamento original estornado. |
+| `merchant_id` | `UUID` | `NOT NULL REFERENCES ledger_core.merchants(id)` | Merchant proprietário. |
+| `ledger_transaction_id` | `UUID` | `NOT NULL REFERENCES ledger_core.ledger_transactions(id)` | Transação contábil compensatória (`PAYMENT_REFUND`). |
+| `amount_cents` | `BIGINT` | `NOT NULL CHECK (amount_cents > 0)` | Valor estornado em centavos inteiros (`> 0`). |
+| `platform_fee_reversed_cents` | `BIGINT` | `NOT NULL CHECK (platform_fee_reversed_cents >= 0)` | Parcela da taxa da plataforma revertida em centavos. |
+| `net_merchant_reversed_cents` | `BIGINT` | `NOT NULL CHECK (net_merchant_reversed_cents >= 0)` | Parcela debitada da conta `MERCHANT` em centavos. |
+| `recipient_reversals_json` | `TEXT` | `NOT NULL DEFAULT '[]'` | JSON serializado `[{ recipientAccountId, amountCents }]` dos splits revertidos. |
+| `reason` | `VARCHAR(255)` | `NOT NULL` | Motivo do estorno (`3..255` chars). |
+| `idempotency_key` | `VARCHAR(128)` | `NOT NULL` | Chave enviada no header `Idempotency-Key`. |
+| `correlation_id` | `VARCHAR(64)` | `NOT NULL` | `X-Correlation-Id` propagado. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC de criação (**sem `updated_at`**). |
+
+**Constraint Única:** `CONSTRAINT uq_payment_refunds_merchant_idempotency UNIQUE (merchant_id, idempotency_key)`
 
 ---
 
-## 7. Semente Dev Local Padronizada (`dev` / `test`)
+### 6.2 `ledger_core.reconciliation_reports`
+Armazena relatórios periódicos (`@Scheduled`) e sob demanda (`MANUAL`) de auditoria contábil cruzando `accounts`, `ledger_entries`, `payments` e `payment_refunds`.
 
-Para viabilizar imediatamente os testes da Semana 1 (Dias 05 e 07 — login JWT, verificação RBAC e autenticação `X-API-Key`), Semana 2 (Split, Ledger e Outbox) e Semana 3 (Antifraude e Revisão Manual), o ambiente local e de teste deve provisionar os registros determinísticos abaixo **somente fora de produção** (via `ApplicationRunner` com `@Profile({"local", "dev", "test"})` ou pasta Flyway `classpath:db/seed` carregada apenas em `dev`/`test`, nunca hardcoded para produção):
+| Coluna | Tipo SQL | Restrições / Default | Descrição |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY` | Identificador único do relatório. |
+| `status` | `VARCHAR(20)` | `NOT NULL CHECK (status IN ('BALANCED', 'DIVERGENT'))` | Resultado da auditoria de integridade. |
+| `checked_accounts_count` | `INTEGER` | `NOT NULL CHECK (checked_accounts_count >= 0)` | Total de contas auditadas. |
+| `divergent_accounts_count` | `INTEGER` | `NOT NULL CHECK (divergent_accounts_count >= 0)` | Quantidade de contas onde saldo difere da soma dos `ledger_entries`. |
+| `checked_transactions_count` | `INTEGER` | `NOT NULL CHECK (checked_transactions_count >= 0)` | Total de `ledger_transactions` auditadas. |
+| `unbalanced_transactions_count` | `INTEGER` | `NOT NULL CHECK (unbalanced_transactions_count >= 0)` | Quantidade de transações com $\sum \text{DEBIT} \neq \sum \text{CREDIT}$. |
+| `total_settled_payments_cents` | `BIGINT` | `NOT NULL CHECK (total_settled_payments_cents >= 0)` | Soma bruta de pagamentos liquidados (`SETTLED`, `PARTIALLY_REFUNDED`, `REFUNDED`). |
+| `total_ledger_settlements_cents` | `BIGINT` | `NOT NULL CHECK (total_ledger_settlements_cents >= 0)` | Soma dos débitos de `ESCROW` em `PAYMENT_SETTLEMENT`. |
+| `total_refunds_cents` | `BIGINT` | `NOT NULL CHECK (total_refunds_cents >= 0)` | Soma de `payment_refunds.amount_cents`. |
+| `total_ledger_refunds_cents` | `BIGINT` | `NOT NULL CHECK (total_ledger_refunds_cents >= 0)` | Soma dos créditos de `ESCROW` em `PAYMENT_REFUND`. |
+| `discrepancy_cents` | `BIGINT` | `NOT NULL` | Soma total de discrepâncias detectadas em centavos (`0` quando `BALANCED`). |
+| `trigger_source` | `VARCHAR(20)` | `NOT NULL CHECK (trigger_source IN ('MANUAL', 'SCHEDULED'))` | Origem da execução. |
+| `findings_json` | `TEXT` | `NOT NULL DEFAULT '[]'` | Lista JSON serializada de inconsistências encontradas. |
+| `correlation_id` | `VARCHAR(64)` | `NOT NULL` | `X-Correlation-Id` da execução. |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL DEFAULT CURRENT_TIMESTAMP` | Data/hora UTC da auditoria. |
 
-### 7.1 Operadores Internos (`ledger_core.users`)
+---
+
+## 7. Migration `V6__add_performance_indexes.sql` (Dia 35 — Índices Compostos & Revisão)
+
+> **Nota de Versionamento Flyway:** No rascunho inicial do Roadmap (Dia 35), a migration de índices estava prevista como `V4`. Como a Semana 3 criou `V4__create_risk_review_decisions.sql` e a Semana 5 cria `V5__create_refunds_and_reconciliation.sql`, a migration de performance da Semana 5 assume oficialmente a versão **`V6__add_performance_indexes.sql`**, sem duplicar nenhum índice já criado em `V1`–`V4`.
+
+### 7.1 Novos Índices Compostos (`V6`)
+
+| Índice | Tabela & Colunas | Consultas Otimizadas |
+| :--- | :--- | :--- |
+| `idx_payments_merchant_status_created` | `ledger_core.payments (merchant_id, status, created_at DESC)` | Listagem filtrada por merchant + status (`GET /api/v1/payments`), KPIs e conciliação. |
+| `idx_payments_status_risk_created` | `ledger_core.payments (status, risk_score DESC, created_at DESC)` | Fila de revisão antifraude (`GET /api/v1/risk/reviews` com `status = 'MANUAL_REVIEW'` e `minRiskScore`). |
+| `idx_payments_payer_created` | `ledger_core.payments (payer_id, created_at DESC)` | Cálculo de velocidade (`velocity_1h`) e auditoria por pagador. |
+| `idx_payment_refunds_payment_created` | `ledger_core.payment_refunds (payment_id, created_at DESC)` | Listagem `GET /api/v1/payments/{id}/refunds` e cálculo de saldo já estornado. |
+| `idx_reconciliation_reports_created` | `ledger_core.reconciliation_reports (created_at DESC)` | Paginação `GET /api/v1/reconciliation/reports` e exportação CSV ordenada. |
+
+### 7.2 Análise `EXPLAIN ANALYZE` Esperada (PostgreSQL 16)
+- **Filtro combinado de pagamentos (`WHERE merchant_id = ? AND status = ? ORDER BY created_at DESC LIMIT 20`):** substitui `Index Scan` em `idx_payments_merchant_created` + `Filter` em memória por **`Index Scan`** direto em `idx_payments_merchant_status_created`, já entregando as linhas na ordem `created_at DESC` sem etapa extra de `Sort`.
+- **Fila de revisão manual (`WHERE status = 'MANUAL_REVIEW' AND risk_score >= ? ORDER BY risk_score DESC, created_at DESC`):** utiliza **`Index Scan`** em `idx_payments_status_risk_created` sem leitura de linhas `SETTLED`/`DECLINED`.
+- **Velocidade 1h por pagador (`WHERE payer_id = ? AND created_at >= ?`):** utiliza **`Index Only Scan`** / **`Index Scan`** em `idx_payments_payer_created` em vez de `Seq Scan` na tabela `payments`.
+- **Histórico de estornos (`WHERE payment_id = ? ORDER BY created_at DESC`):** utiliza **`Index Scan`** em `idx_payment_refunds_payment_created` em vez de `Seq Scan` + `Sort`.
+- **Relatórios de conciliação (`ORDER BY created_at DESC LIMIT 20`):** utiliza **`Index Scan`** em `idx_reconciliation_reports_created`.
+
+### 7.3 Checklist de Revisão de Segurança & Performance (Semana 5)
+- [x] **Rate Limiting Token Bucket Redis por `X-API-Key`:** devolve `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` e `HTTP 429` (`rate-limit-exceeded`) + `Retry-After`.
+- [x] **Idempotência em Pagamentos e Estornos:** `Idempotency-Key` + hash SHA-256 do payload no Redis + constraint única em SQL (`uq_payments_merchant_idempotency` e `uq_payment_refunds_merchant_idempotency`), retornando `409 Conflict` em divergência.
+- [x] **Concorrência & Imutabilidade:** `@Version` em `accounts` e `payments`; `ledger_entries` e `payment_refunds` estritamente append-only (sem `UPDATE`/`DELETE`).
+- [x] **Precisão Monetária:** 100% centavos inteiros (`BIGINT` / `long`), zero `float`/`double`.
+- [x] **Segurança de API e Transporte:** SSE autenticado via header `Authorization: Bearer <jwt>` (`fetch` + `ReadableStream`), zero segredos em logs/respostas RFC 7807, `X-Correlation-Id` propagado ponta a ponta.
+
+---
+
+## 8. Nota de Portabilidade DDL (PostgreSQL 16 ↔ H2 `2.2.224` `MODE=PostgreSQL`)
+
+Para que os testes automatizados (`mvn test` usando H2 em memória e `mvn verify` com Testcontainers) executem **exatamente as mesmas migrations Flyway `V1` a `V6`** sem falhas de sintaxe:
+
+1. **JDBC URL recomendada para `application-test.yml` (H2):**
+   `jdbc:h2:mem:ledgerpulse_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS ledger_core`
+2. **Qualificação explícita de schema:** todas as tabelas e FKs nas migrations usam o prefixo `ledger_core.` (com `spring.flyway.schemas=ledger_core` e `spring.jpa.properties.hibernate.default_schema=ledger_core`). Não usar comandos exclusivos como `SET search_path` dentro de `V1`–`V6`.
+3. **Tipos de data e texto portáteis (Regra Obrigatória):**
+   - Usar **sempre `TIMESTAMP WITH TIME ZONE`** e **nunca `TIMESTAMPTZ`** no DDL (garante compatibilidade estrita com H2 `2.2.224` `MODE=PostgreSQL` e PostgreSQL 16), sempre com `DEFAULT CURRENT_TIMESTAMP` (evitar `NOW()` ou casts `::jsonb`).
+   - Usar `TEXT` para `reason_codes_json` (`V2`), `payload_json` (`V3`), `recipient_reversals_json` e `findings_json` (`V5`) em vez de `JSONB` (evita divergência de dialeto no H2).
+   - Usar `VARCHAR(3)` em vez de `CHAR(3)` para `currency` (evita padding inconsistente entre JDBC drivers).
+4. **Geração de UUID na aplicação:** não utilizar `CREATE EXTENSION pgcrypto/uuid-ossp` nem `DEFAULT gen_random_uuid()` no DDL; todos os UUIDs são atribuídos no Java (`UUID.randomUUID()`).
+5. **Índices com ordenação:** índices simples e compostos (`ASC`/`DESC`) descritos em `V1`–`V6` funcionam tanto em PostgreSQL 16 quanto no H2 `2.2.224` em `MODE=PostgreSQL`.
+
+---
+
+## 9. Semente Dev Local Padronizada (`dev` / `test`)
+
+Para viabilizar imediatamente os testes da Semana 1 (Dias 05 e 07 — login JWT, verificação RBAC e autenticação `X-API-Key`), Semana 2 (Split, Ledger e Outbox), Semana 3 (Antifraude e Revisão Manual) e Semana 5 (Estornos, Conciliação, Dashboard e Rate Limit), o ambiente local e de teste deve provisionar os registros determinísticos abaixo **somente fora de produção** (via `ApplicationRunner` com `@Profile({"local", "dev", "test"})` ou pasta Flyway `classpath:db/seed` carregada apenas em `dev`/`test`, nunca hardcoded para produção):
+
+### 9.1 Operadores Internos (`ledger_core.users`)
 Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada como hash **BCrypt**).
 
 | ID (`UUID`) | Nome | Email | Role |
@@ -340,7 +436,7 @@ Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada 
 | `11111111-1111-4111-8111-111111111112` | `LedgerPulse Analyst` | `analyst@ledgerpulse.dev` | `ANALYST` |
 | `11111111-1111-4111-8111-111111111113` | `LedgerPulse Viewer` | `viewer@ledgerpulse.dev` | `VIEWER` |
 
-### 7.2 Merchant Demo (`ledger_core.merchants`)
+### 9.2 Merchant Demo (`ledger_core.merchants`)
 - **ID:** `7b92c3e0-1f42-4876-a1e2-901283471234`
 - **Nome:** `Acme Fintech Store`
 - **`default_fee_bps`:** `250` (`2.50%`)
@@ -349,7 +445,7 @@ Senha padrão de desenvolvimento para todos: **`LedgerPulse@2026`** (armazenada 
 - **`api_key_hash` armazenado no banco (SHA-256 hex lowercase):**
   `c7c6a21450462cbc3ab9eba66cb46fc1fa55686c524415346dcc58b55d8ae319`
 
-### 7.3 Contas Iniciais Padrão (`ledger_core.accounts`)
+### 9.3 Contas Iniciais Padrão (`ledger_core.accounts`)
 | ID (`UUID`) | `merchant_id` | `account_type` | `holder_name` | Saldo Inicial |
 | :--- | :--- | :--- | :--- | :---: |
 | `00000000-0000-4000-8000-000000000001` | `NULL` | `ESCROW` | `LedgerPulse Clearing Escrow` | `0` |

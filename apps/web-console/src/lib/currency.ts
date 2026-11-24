@@ -121,3 +121,15 @@ export function computeBpsAmountCents(grossAmountCents: number, bps: number): nu
   return Number(result);
 }
 
+/**
+ * Formata basis points inteiros (ex.: 8571 -> "85,71%", 250 -> "2,50%") sem aritmética de ponto flutuante.
+ */
+export function formatBpsPercent(bps: number): string {
+  if (!Number.isSafeInteger(bps) || bps < 0) {
+    return '0,00%';
+  }
+  const whole = Math.floor(bps / 100);
+  const remainder = String(bps % 100).padStart(2, '0');
+  return `${whole},${remainder}%`;
+}
+

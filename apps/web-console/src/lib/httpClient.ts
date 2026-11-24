@@ -50,7 +50,7 @@ export function getServiceBaseUrl(service: ApiServiceTarget = 'core'): string {
   return service === 'webhook' ? WEBHOOK_API_BASE_URL : CORE_API_BASE_URL;
 }
 
-function generateCorrelationId(): string {
+export function generateCorrelationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
@@ -156,6 +156,35 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   }
 }
 
+export async function toApiErrorFromResponse(
+  response: Response,
+  path: string,
+  correlationId: string,
+  skipAuth = false,
+): Promise<ApiError> {
+  const responseCorrelationId = response.headers.get('X-Correlation-Id') ?? correlationId;
+  const parsedErrorBody = await parseResponseBody(response);
+  const fallbackDetail =
+    typeof parsedErrorBody === 'string' && parsedErrorBody.trim().length > 0
+      ? parsedErrorBody
+      : `Falha na requisição HTTP ${response.status}.`;
+
+  const problem = normalizeProblemDetail(
+    parsedErrorBody,
+    response.status,
+    response.statusText || 'Request Failed',
+    fallbackDetail,
+    path,
+    responseCorrelationId,
+  );
+
+  if (response.status === 401 && !skipAuth) {
+    unauthorizedHandler?.();
+  }
+
+  return new ApiError(problem);
+}
+
 export async function httpRequestWithMeta<T>(
   path: string,
   options: HttpRequestOptions = {},
@@ -216,26 +245,7 @@ export async function httpRequestWithMeta<T>(
   const responseCorrelationId = response.headers.get('X-Correlation-Id') ?? correlationId;
 
   if (!response.ok) {
-    const parsedErrorBody = await parseResponseBody(response);
-    const fallbackDetail =
-      typeof parsedErrorBody === 'string' && parsedErrorBody.trim().length > 0
-        ? parsedErrorBody
-        : `Falha na requisição HTTP ${response.status}.`;
-
-    const problem = normalizeProblemDetail(
-      parsedErrorBody,
-      response.status,
-      response.statusText || 'Request Failed',
-      fallbackDetail,
-      path,
-      responseCorrelationId,
-    );
-
-    if (response.status === 401 && !skipAuth) {
-      unauthorizedHandler?.();
-    }
-
-    throw new ApiError(problem);
+    throw await toApiErrorFromResponse(response, path, correlationId, skipAuth);
   }
 
   if (response.status === 204) {

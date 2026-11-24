@@ -68,6 +68,21 @@ app:
     base-url: ${RISK_ENGINE_URL:http://localhost:8001}
     connect-timeout-ms: 1000
     read-timeout-ms: 1500
+  sse:
+    heartbeat-enabled: ${LEDGERPULSE_SSE_HEARTBEAT_ENABLED:true}
+    heartbeat-interval-ms: 15000
+    emitter-timeout-ms: 0
+  reconciliation:
+    scheduled:
+      enabled: ${LEDGERPULSE_RECONCILIATION_SCHEDULED_ENABLED:true}
+      fixed-delay-ms: 300000
+      initial-delay-ms: 60000
+  rate-limit:
+    enabled: ${LEDGERPULSE_RATE_LIMIT_ENABLED:true}
+    store: ${LEDGERPULSE_RATE_LIMIT_STORE:redis}
+    capacity: ${LEDGERPULSE_RATE_LIMIT_CAPACITY:60}
+    refill-tokens: ${LEDGERPULSE_RATE_LIMIT_REFILL_TOKENS:60}
+    refill-period-seconds: ${LEDGERPULSE_RATE_LIMIT_REFILL_PERIOD_SECONDS:60}
 
 resilience4j:
   circuitbreaker:

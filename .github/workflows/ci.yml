@@ -51,7 +51,7 @@ jobs:
         run: mvn -B verify
 
   web-console:
-    name: Typecheck & Build web-console (Node 24)
+    name: Typecheck, Test & Build web-console (Node 24)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -72,6 +72,9 @@ jobs:
 
       - name: Typecheck TypeScript
         run: npx tsc --noEmit
+
+      - name: Run unit & component tests
+        run: npm test
 
       - name: Build production bundle
         run: npm run build

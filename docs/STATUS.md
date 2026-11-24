@@ -1,8 +1,8 @@
 # 📌 Estado Compartilhado do Projeto (`ledgerpulse-platform`)
 
-> **Atualizado em:** 23/11/2026  
-> **Fase Atual:** `Fase 4 — Semana 4 Concluída (Dias 22–28 · Branch feat/week-4-webhooks-dlq-simulator com 13 commits pronta para PR #4)`  
-> **Próximo Marco:** **Semana 5 · Dia 29** (`feat/core-sse-realtime-stream` — Stream Real-Time via Server-Sent Events `SseEmitter` no `ledger-core-api` — Chat 02)
+> **Atualizado em:** 24/11/2026  
+> **Fase Atual:** `Fase 5 — Semana 5 Concluída (Dias 29–35 · Branch feat/week-5-sse-refunds-reconciliation com 13 commits pronta para PR #5)`  
+> **Próximo Marco:** **Semana 6 · Dia 36** (`feat/observability-prometheus-metrics` — Métricas customizadas Micrometer/Prometheus nos 3 serviços — Chats 02 & 04)
 
 ---
 
@@ -25,7 +25,7 @@
 | **Semana 2** | `08–14` | Double-Entry Ledger imutável + `@Version`, `Idempotency-Key` Redis, Motor de Split + Máquina de Estados, Transactional Outbox + Relay RabbitMQ, UI Auditoria Ledger + Contas | `01`, `02`, `03`, `04` | ✅ Dias 08–14 Concluídos |
 | **Semana 3** | `15–21` | Microsserviço Python `risk-engine-ai` (FastAPI + Scikit-Learn + `reason_codes`), Integração Resilience4j (Circuit Breaker + Fallback), Fluxo `MANUAL_REVIEW`, Central Antifraude UI | `01`, `02`, `03`, `04` | ✅ Dias 15–21 Concluídos |
 | **Semana 4** | `22–28` | Microsserviço `webhook-dispatcher` (Spring AMQP + Virtual Threads + HMAC-SHA256), Topologia Retry TTL + DLQ + Replay, Webhook Sink, Console DLQ + Simulador Checkout + Teste E2E | `01`, `02`, `03`, `04` | ✅ Dias 22–28 Concluídos |
-| **Semana 5** | `29–35` | Stream Real-Time via SSE, Estornos compensatórios (`REFUND`), Conciliação `@Scheduled` + CSV, Dashboard Real-Time + Rate Limiting Token Bucket Redis + Revisão Segurança/Índices | `01`, `02`, `03`, `04` | ⏳ Pendente |
+| **Semana 5** | `29–35` | Stream Real-Time via SSE, Estornos compensatórios (`REFUND`), Conciliação `@Scheduled` + CSV, Dashboard Real-Time + Rate Limiting Token Bucket Redis + Revisão Segurança/Índices | `01`, `02`, `03`, `04` | ✅ Dias 29–35 Concluídos |
 | **Semana 6** | `36–42` | Métricas Prometheus nos 3 serviços, Dashboards Grafana provisionados, Script Load & Chaos Testing, Documentação C4/Postman, Auditoria Docker Clean Run e Release `v1.0.0` | `00`, `01`, `02`, `03`, `04` | ⏳ Pendente |
 
 ---
@@ -40,6 +40,12 @@
 
 ## 4. 🔄 Último Handoff entre Chats
 
+- **24/11/2026 — Semana 5 (Dias 29–35) Consolidada na Branch `feat/week-5-sse-refunds-reconciliation`:**
+  - **Chat 01 (Contract-First S5 & V5/V6):** Congelou os contratos de SSE (`GET /api/v1/stream/events`), Dashboard (`GET /api/v1/dashboard/summary`), Estornos (`POST`/`GET /api/v1/payments/{id}/refunds`), Conciliação (`POST /api/v1/reconciliation/run`, `GET /reports`, `GET /export.csv`) e Rate Limiting Redis (`429 rate-limit-exceeded` + headers `X-RateLimit-*`) em [api-v1-overview.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/api-v1-overview.md), [openapi-ledger-core-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-ledger-core-v1.yaml) e [docs/contracts/README.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/README.md), e documentou `V5__create_refunds_and_reconciliation.sql` e `V6__add_performance_indexes.sql` em [01-modelo-dados-v1.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/architecture/01-modelo-dados-v1.md).
+  - **Chat 02 (Dias 29–31 & 35):** Implementou em `services/ledger-core-api` o stream SSE pós-commit (`SseEventHub`, `SseHeartbeatScheduler`, `SseBroadcastListener`) + `DashboardController`, estornos compensatórios totais e parciais append-only (`V5`, `RefundCalculator` em `BigInteger`/`long`, `IdempotencyService.executeScoped`), auditoria/conciliação `@Scheduled` + exportação CSV UTF-8 (`ReconciliationService` com detecção de divergência induzida), e Rate Limiting Token Bucket (`RedisTokenBucketRateLimitStore` Lua + `InMemoryTokenBucketRateLimitStore`, `ApiKeyRateLimitFilter`, `V6`), validado via `mvn -B verify` (`56/56` Surefire passando; `LedgerCoreTestcontainersIT` skipado sem Docker local; regressão `webhook-dispatcher` `14/14` e `risk-engine-ai` `10/10` + `ruff` OK).
+  - **Chat 03 (Dias 32–34):** Implementou em `apps/web-console` o cliente SSE via `fetch()` + `ReadableStream`, **Dashboard Executivo Real-Time** (`ExecutiveDashboardPage` + Recharts + `LiveEventFeed`), página **Integridade & Conciliação** (`ReconciliationPage` com banner de balanço, botão `ADMIN` e download CSV) e suíte **Vitest + React Testing Library** (`7` arquivos / `13` testes passando, `tsc --noEmit` e `vite build` `exit 0`).
+  - **Chat 04 (Dia 34 CI):** Atualizou `.github/workflows/ci.yml` para executar `npm test` no job `web-console` (`docker compose config --quiet` e `--self-test` OK).
+  - **Git Local:** `13` commits atômicos na branch `feat/week-5-sse-refunds-reconciliation` a partir de `main` (`eefe933`), prontos para push e PR #5.
 - **23/11/2026 — Semana 4 (Dias 22–28) Consolidada na Branch `feat/week-4-webhooks-dlq-simulator`:**
   - **Chat 01 (Contract-First S4 & schema `webhooks`):** Congelou os contratos do `webhook-dispatcher` em [api-v1-overview.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/api-v1-overview.md), criou [openapi-webhook-dispatcher-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-webhook-dispatcher-v1.yaml) e documentou o schema `webhooks` (`V1__create_webhooks_tables.sql`) em [02-modelo-dados-webhooks-v1.md](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/architecture/02-modelo-dados-webhooks-v1.md).
   - **Chat 02 (Dias 22–25):** Implementou `services/webhook-dispatcher` (Java 21 + Spring Boot 3.3.5 + Virtual Threads `spring.threads.virtual.enabled=true`, Flyway schema `webhooks`, JWT stateless, topologia RabbitMQ `ledger.events` / `ledger.retry.{5s,30s,120s}` / `ledger.dlx` / `ledger.webhooks.dlq` com escalonamento `x-death`, assinatura HMAC-SHA256, motor HTTP em Virtual Threads, Merchant Webhook Sink e API de gestão/replay DLQ), validado com `mvn -B test` (`14/14` passando; regressão `ledger-core-api` `50/50` e `risk-engine-ai` `10/10` + `ruff` OK).

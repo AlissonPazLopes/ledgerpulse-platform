@@ -1,6 +1,6 @@
 # 🌐 Contratos REST v1 (`api-v1-overview.md`)
 
-> **Versão do Contrato:** `v1.0-frozen` (Semanas 1, 2, 3 e 4 congeladas)  
+> **Versão do Contrato:** `v1.0-frozen` (Semanas 1, 2, 3, 4 e 5 congeladas)  
 > **Especificação OpenAPI (`ledger-core-api`):** [openapi-ledger-core-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-ledger-core-v1.yaml)  
 > **Especificação OpenAPI (`risk-engine-ai`):** [openapi-risk-engine-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-risk-engine-v1.yaml)  
 > **Especificação OpenAPI (`webhook-dispatcher`):** [openapi-webhook-dispatcher-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-webhook-dispatcher-v1.yaml)  
@@ -33,7 +33,8 @@
    - `X-API-Key: <merchant_api_key>` — obrigatório para integrações S2S de merchants (`GET /api/v1/merchants/me`, `POST /api/v1/payments`, `POST /api/v1/payments/{id}/refunds`).
    - `Idempotency-Key: <uuid_ou_chave_unica>` — **obrigatório** em `POST /api/v1/payments` e `POST /api/v1/payments/{id}/refunds`.
    - `X-Correlation-Id: <uuid>` — opcional na entrada (gerado automaticamente pelo filtro HTTP se ausente), sempre devolvido no header da resposta e propagado nos logs, banco, cliente Python, RabbitMQ e SSE.
-   - `X-Idempotent-Replay: true` — header informativo devolvido quando `POST /api/v1/payments` retorna resposta cacheada de replay idêntico.
+   - `X-Idempotent-Replay: true` — header informativo devolvido quando `POST /api/v1/payments` ou `POST /api/v1/payments/{id}/refunds` retorna resposta cacheada de replay idêntico.
+   - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (Unix epoch em segundos) — devolvidos em toda resposta autenticada via `X-API-Key` (acompanhados de `Retry-After` em segundos no `HTTP 429`).
    - `X-LedgerPulse-Signature: t=<unix_epoch>,v1=<hmac_sha256_hex>` — enviado pelo `webhook-dispatcher` em toda entrega HTTP de webhook.
 6. **Wrapper Padrão de Paginação:**
    - Todos os endpoints paginados (`GET /api/v1/accounts`, `GET /api/v1/ledger/transactions`, `GET /api/v1/payments`, etc.) aceitam `?page=0&size=20` (com `size` máximo `100`) e devolvem exatamente este envelope:
@@ -102,6 +103,22 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 }
 ```
 
+### Exemplo Canônico (`429 rate-limit-exceeded`)
+
+> Acompanhado dos headers `X-RateLimit-Limit`, `X-RateLimit-Remaining: 0`, `X-RateLimit-Reset` (Unix epoch segundos) e `Retry-After`.
+
+```json
+{
+  "type": "https://ledgerpulse.dev/errors/rate-limit-exceeded",
+  "title": "Rate Limit Exceeded",
+  "status": 429,
+  "detail": "Limite de requisições do Token Bucket excedido para a X-API-Key informada.",
+  "instance": "/api/v1/payments",
+  "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+  "timestamp": "2026-11-24T14:30:00Z"
+}
+```
+
 ---
 
 ## 3. Mapa de Endpoints — `ledger-core-api` (`:8080`)
@@ -123,15 +140,17 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 | **Payments** | `S2` | `GET /api/v1/payments/{id}` | JWT ou `X-API-Key` | Consulta pagamento, split calculado, score de risco e `reasonCodes`. |
 | **Risk Review** | `S3` | `GET /api/v1/risk/reviews` | JWT (`ANALYST`/`ADMIN`) | Fila paginada de pagamentos em `MANUAL_REVIEW`. |
 | **Risk Review** | `S3` | `POST /api/v1/risk/reviews/{paymentId}/decision` | JWT (`ANALYST`/`ADMIN`) | Analista decide `APPROVE` ou `DECLINE` com justificativa. |
+| **Dashboard** | `S5` | `GET /api/v1/dashboard/summary` | JWT | KPIs executivos e série horária (TPV, aprovação, risco médio, estornos). |
 | **Refunds** | `S5` | `POST /api/v1/payments/{id}/refunds` | `X-API-Key` ou JWT (`ADMIN`/`ANALYST`) + `Idempotency-Key` | Estorno total ou parcial com lançamentos compensatórios imutáveis. |
-| **Reconciliation** | `S5` | `POST /api/v1/reconciliation/run` | JWT (`ADMIN`) | Dispara conciliação contábil sob demanda. |
-| **Reconciliation** | `S5` | `GET /api/v1/reconciliation/reports` | JWT | Lista relatórios periódicos de conciliação. |
-| **Reconciliation** | `S5` | `GET /api/v1/reconciliation/export.csv` | JWT | Exporta relatório de conciliação em CSV. |
+| **Refunds** | `S5` | `GET /api/v1/payments/{id}/refunds` | JWT ou `X-API-Key` | Lista estornos de um pagamento ordenados por `createdAt DESC`. |
+| **Reconciliation** | `S5` | `POST /api/v1/reconciliation/run` | JWT (`ADMIN`) | Dispara conciliação contábil sob demanda (`201 Created`). |
+| **Reconciliation** | `S5` | `GET /api/v1/reconciliation/reports` | JWT | Lista relatórios periódicos de conciliação (`PageResponse`). |
+| **Reconciliation** | `S5` | `GET /api/v1/reconciliation/export.csv` | JWT | Exporta relatórios de conciliação em `text/csv; charset=UTF-8`. |
 | **SSE Stream** | `S5` | `GET /api/v1/stream/events` | JWT (via `fetch` `ReadableStream`) | Stream `text/event-stream` em tempo real para o Dashboard Executivo. |
 
 ---
 
-## 4. Payloads JSON Congelados — Semana 1 e Semana 2 (`ledger-core-api`)
+## 4. Payloads JSON Congelados — Semanas 1, 2, 3 e 5 (`ledger-core-api`)
 
 > Os contratos detalhados abaixo correspondem ao arquivo OpenAPI [openapi-ledger-core-v1.yaml](file:///C:/Users/aliss/OneDrive/Documentos/AlissonDev/Estudo_Java/ProjetosGitHub/ledgerpulse-platform/docs/contracts/openapi-ledger-core-v1.yaml).
 
@@ -532,6 +551,181 @@ Todas as respostas `4xx` e `5xx` dos serviços Java devem retornar `Content-Type
 ```
 
 > Quando `decision = "DECLINE"`, `paymentStatus` é `"DECLINED"` e `ledgerTransactionId` é `null`.
+
+### 4.12 `GET /api/v1/stream/events` (JWT, `Content-Type: text/event-stream`)
+
+- O `web-console` consome este endpoint via `fetch()` + `ReadableStream` enviando `Authorization: Bearer <jwt>`.
+- **Eventos suportados (`event:`):** `connected`, `heartbeat`, `payment.settled`, `payment.manual_review_required`, `payment.declined`, `payment.refunded`, `risk.feedback.recorded`, `reconciliation.completed`.
+
+**Payload `data` para `connected` e `heartbeat`:**
+```json
+{
+  "eventType": "connected",
+  "timestamp": "2026-11-24T14:30:00Z",
+  "message": "SSE stream connected"
+}
+```
+*(Em `heartbeat`, `eventType` é `"heartbeat"` e `message` ex.: `"keepalive"`.)*
+
+**Payload `data` para eventos de domínio (`payment.settled`, `payment.manual_review_required`, `payment.declined`, `payment.refunded`, `risk.feedback.recorded`, `reconciliation.completed`):**
+```json
+{
+  "eventId": "c7a615f1-82b3-4e11-9c2a-5d2d1b63e701",
+  "eventType": "payment.settled",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-11-24T14:31:05Z",
+  "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+  "merchantId": "7b92c3e0-1f42-4876-a1e2-901283471234",
+  "payload": {
+    "paymentId": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+    "ledgerTransactionId": "f9e8d7c6-5b4a-4321-8765-112233445566",
+    "amountCents": 15000,
+    "status": "SETTLED"
+  }
+}
+```
+*(Em `reconciliation.completed`, `merchantId` pode ser `null` por se tratar de verificação global da plataforma.)*
+
+### 4.13 `GET /api/v1/dashboard/summary` (JWT)
+
+**Response `200 OK`:**
+```json
+{
+  "tpvCents": 1500000,
+  "totalPayments": 42,
+  "settledCount": 36,
+  "manualReviewCount": 3,
+  "declinedCount": 2,
+  "refundedCount": 1,
+  "totalRefundedCents": 15000,
+  "approvalRateBps": 8571,
+  "averageRiskScore": 22,
+  "hourlySeries": [
+    {
+      "hourLabel": "14:00",
+      "volumeCents": 320000,
+      "paymentCount": 8,
+      "averageRiskScore": 19
+    }
+  ],
+  "generatedAt": "2026-11-24T14:30:00Z"
+}
+```
+
+### 4.14 `POST /api/v1/payments/{id}/refunds` (`X-API-Key` ou JWT `ADMIN`/`ANALYST`; `VIEWER` → `403 Forbidden`)
+
+- **Header obrigatório:** `Idempotency-Key` (replay idêntico devolve resposta cacheada com `X-Idempotent-Replay: true`; payload divergente devolve `409 Conflict` `idempotency-conflict`).
+- **Invariantes Contábeis do Estorno:**
+  - Só aceita pagamentos em `SETTLED` ou `PARTIALLY_REFUNDED` (caso contrário → `409 Conflict` `invalid-payment-state`).
+  - Quando `amountCents` for omitido ou `null`, estorna integralmente `remainingRefundableCents`.
+  - Se `amountCents <= 0` ou `amountCents > remainingRefundableCents`, ou `reason` inválido → `400 Bad Request` (`validation-error`).
+  - Gera uma nova `ledger_transaction` (`referenceType = "PAYMENT_REFUND"`) **estritamente append-only**, revertendo proporcionalmente taxa da plataforma, merchant e recebedores de split (`CREDIT ESCROW`, `DEBIT PLATFORM_FEE`, `DEBIT MERCHANT`, `DEBIT RECIPIENT...`), sem nunca alterar lançamentos antigos e sem usar `float`/`double`.
+
+**Request:**
+```json
+{
+  "amountCents": 5000,
+  "reason": "Estorno parcial solicitado pelo comprador"
+}
+```
+
+**Response `201 Created`:**
+```json
+{
+  "refundId": "b1c2d3e4-1111-4222-8333-555566667777",
+  "paymentId": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+  "ledgerTransactionId": "a9b8c7d6-5e4f-4321-8765-998877665544",
+  "amountCents": 5000,
+  "platformFeeReversedCents": 125,
+  "netMerchantReversedCents": 3875,
+  "recipientReversals": [
+    {
+      "recipientAccountId": "22222222-2222-4222-8222-222222222222",
+      "amountCents": 1000
+    }
+  ],
+  "paymentStatus": "PARTIALLY_REFUNDED",
+  "totalRefundedCents": 5000,
+  "remainingRefundableCents": 10000,
+  "reason": "Estorno parcial solicitado pelo comprador",
+  "idempotencyKey": "refund-key-001",
+  "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+  "createdAt": "2026-11-24T14:35:00Z"
+}
+```
+
+### 4.15 `GET /api/v1/payments/{id}/refunds` (JWT ou `X-API-Key`)
+
+**Response `200 OK` (ordenado por `createdAt DESC`):**
+```json
+{
+  "items": [
+    {
+      "refundId": "b1c2d3e4-1111-4222-8333-555566667777",
+      "paymentId": "e1d2c3b4-5a6b-4c7d-8e9f-001122334455",
+      "ledgerTransactionId": "a9b8c7d6-5e4f-4321-8765-998877665544",
+      "amountCents": 5000,
+      "platformFeeReversedCents": 125,
+      "netMerchantReversedCents": 3875,
+      "recipientReversals": [
+        {
+          "recipientAccountId": "22222222-2222-4222-8222-222222222222",
+          "amountCents": 1000
+        }
+      ],
+      "paymentStatus": "PARTIALLY_REFUNDED",
+      "totalRefundedCents": 5000,
+      "remainingRefundableCents": 10000,
+      "reason": "Estorno parcial solicitado pelo comprador",
+      "idempotencyKey": "refund-key-001",
+      "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+      "createdAt": "2026-11-24T14:35:00Z"
+    }
+  ]
+}
+```
+
+### 4.16 `POST /api/v1/reconciliation/run` (JWT `ADMIN`; `ANALYST`/`VIEWER` → `403 Forbidden`) e `GET /api/v1/reconciliation/reports` (JWT)
+
+**Response `201 Created` (`POST /api/v1/reconciliation/run`):**
+```json
+{
+  "id": "c1d2e3f4-1111-4222-8333-112233445566",
+  "status": "BALANCED",
+  "checkedAccountsCount": 4,
+  "divergentAccountsCount": 0,
+  "checkedTransactionsCount": 12,
+  "unbalancedTransactionsCount": 0,
+  "totalSettledPaymentsCents": 150000,
+  "totalLedgerSettlementsCents": 150000,
+  "totalRefundsCents": 5000,
+  "totalLedgerRefundsCents": 5000,
+  "discrepancyCents": 0,
+  "triggerSource": "MANUAL",
+  "findings": [],
+  "correlationId": "4f3c9f62-8b9a-4f3b-9d1a-0192837465ab",
+  "createdAt": "2026-11-24T14:40:00Z"
+}
+```
+> `status`: `"BALANCED"` | `"DIVERGENT"`. `triggerSource`: `"MANUAL"` | `"SCHEDULED"`.  
+> `GET /api/v1/reconciliation/reports` (`?page=0&size=20`) devolve `PageResponse` (`{ items, page, size, totalElements, totalPages }`) contendo objetos `ReconciliationReportResponse` ordenados por `createdAt DESC`.
+
+### 4.17 `GET /api/v1/reconciliation/export.csv` (JWT)
+
+- **Response `200 OK`:**
+  - `Content-Type: text/csv; charset=UTF-8`
+  - `Content-Disposition: attachment; filename="ledgerpulse-reconciliation.csv"`
+  - **Colunas exatas do cabeçalho:**
+    `reportId,createdAt,status,triggerSource,checkedAccountsCount,divergentAccountsCount,checkedTransactionsCount,unbalancedTransactionsCount,totalSettledPaymentsCents,totalLedgerSettlementsCents,totalRefundsCents,totalLedgerRefundsCents,discrepancyCents`
+
+### 4.18 Rate Limiting por `X-API-Key` (Token Bucket Redis)
+
+- Aplicado em todas as requisições autenticadas via `X-API-Key` (`GET /api/v1/merchants/me`, `POST /api/v1/payments`, `GET /api/v1/payments/{id}`, `POST /api/v1/payments/{id}/refunds`, `GET /api/v1/payments/{id}/refunds`).
+- **Headers devolvidos em todas as respostas `X-API-Key`:**
+  - `X-RateLimit-Limit`: capacidade total do bucket;
+  - `X-RateLimit-Remaining`: tokens restantes após o consumo atual (`0` quando bloqueado);
+  - `X-RateLimit-Reset`: timestamp Unix epoch (segundos) da próxima janela/recarga completa.
+- **Quando o bucket esgota:** retorna `HTTP 429 Too Many Requests` (`Content-Type: application/problem+json`, `type: "https://ledgerpulse.dev/errors/rate-limit-exceeded"`, `title: "Rate Limit Exceeded"`) acrescido do header **`Retry-After`** (segundos inteiros).
 
 ---
 

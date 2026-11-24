@@ -28,13 +28,13 @@ class FlywayMigrationsTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void shouldApplyV1ThroughV4AndCreateAllCoreTables() {
+    void shouldApplyV1ThroughV6AndCreateAllCoreTablesAndPerformanceIndexes() {
         List<String> appliedVersions = Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
                 .map(Object::toString)
                 .toList();
 
-        assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
+        assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6");
 
         List<String> tables = jdbcTemplate.queryForList(
                 """
@@ -55,7 +55,26 @@ class FlywayMigrationsTest {
                 "payments",
                 "payment_splits",
                 "outbox_events",
-                "risk_review_decisions"
+                "risk_review_decisions",
+                "payment_refunds",
+                "reconciliation_reports"
+        );
+
+        List<String> indexes = jdbcTemplate.queryForList(
+                """
+                SELECT LOWER(index_name)
+                FROM information_schema.indexes
+                WHERE LOWER(table_schema) = 'ledger_core'
+                """,
+                String.class
+        );
+
+        assertThat(indexes).contains(
+                "idx_payments_merchant_status_created",
+                "idx_payments_status_risk_created",
+                "idx_payments_payer_created",
+                "idx_payment_refunds_payment_created",
+                "idx_reconciliation_reports_created"
         );
     }
 
@@ -69,6 +88,14 @@ class FlywayMigrationsTest {
         assertBigintColumn("payments", "platform_fee_cents");
         assertBigintColumn("payments", "net_merchant_cents");
         assertBigintColumn("payment_splits", "amount_cents");
+        assertBigintColumn("payment_refunds", "amount_cents");
+        assertBigintColumn("payment_refunds", "platform_fee_reversed_cents");
+        assertBigintColumn("payment_refunds", "net_merchant_reversed_cents");
+        assertBigintColumn("reconciliation_reports", "total_settled_payments_cents");
+        assertBigintColumn("reconciliation_reports", "total_ledger_settlements_cents");
+        assertBigintColumn("reconciliation_reports", "total_refunds_cents");
+        assertBigintColumn("reconciliation_reports", "total_ledger_refunds_cents");
+        assertBigintColumn("reconciliation_reports", "discrepancy_cents");
 
         Integer updatedAtInLedgerTx = jdbcTemplate.queryForObject(
                 """
