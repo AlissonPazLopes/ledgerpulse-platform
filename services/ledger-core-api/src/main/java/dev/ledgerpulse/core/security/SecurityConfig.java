@@ -1,6 +1,11 @@
 package dev.ledgerpulse.core.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ledgerpulse.core.auth.repository.MerchantRepository;
+import dev.ledgerpulse.core.ratelimit.ApiKeyRateLimitFilter;
+import dev.ledgerpulse.core.ratelimit.RateLimitProperties;
+import dev.ledgerpulse.core.ratelimit.RateLimitStore;
+import dev.ledgerpulse.core.web.ProblemDetailFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,7 +28,7 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, RateLimitProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -31,11 +36,21 @@ public class SecurityConfig {
             HttpSecurity http,
             JwtService jwtService,
             MerchantRepository merchantRepository,
+            RateLimitStore rateLimitStore,
+            RateLimitProperties rateLimitProperties,
+            ProblemDetailFactory problemDetailFactory,
+            ObjectMapper objectMapper,
             RestAuthenticationEntryPoint authenticationEntryPoint,
             RestAccessDeniedHandler accessDeniedHandler
     ) throws Exception {
         JwtAuthenticationFilter jwtFilter = new JwtAuthenticationFilter(jwtService);
         ApiKeyAuthenticationFilter apiKeyFilter = new ApiKeyAuthenticationFilter(merchantRepository);
+        ApiKeyRateLimitFilter apiKeyRateLimitFilter = new ApiKeyRateLimitFilter(
+                rateLimitStore,
+                rateLimitProperties,
+                problemDetailFactory,
+                objectMapper
+        );
 
         return http
                 .cors(Customizer.withDefaults())
@@ -52,6 +67,7 @@ public class SecurityConfig {
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(apiKeyFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(apiKeyRateLimitFilter, ApiKeyAuthenticationFilter.class)
                 .build();
     }
 
@@ -71,7 +87,8 @@ public class SecurityConfig {
                 "X-Idempotent-Replay",
                 "X-RateLimit-Limit",
                 "X-RateLimit-Remaining",
-                "X-RateLimit-Reset"
+                "X-RateLimit-Reset",
+                "Retry-After"
         ));
         config.setAllowCredentials(true);
 
