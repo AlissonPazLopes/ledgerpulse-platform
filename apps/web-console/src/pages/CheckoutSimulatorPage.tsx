@@ -18,6 +18,7 @@ import { ProblemDetailAlert } from '../components/ProblemDetailAlert';
 import { ReasonCodeChips } from '../components/ReasonCodeChips';
 import {
   computeBpsAmountCents,
+  formatBpsPercent,
   formatCurrencyFromCents,
   parseBrlInputToCents,
   parseSupportedCurrency,
@@ -51,12 +52,6 @@ function createRandomKey(): string {
     return crypto.randomUUID();
   }
   return `sim-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-}
-
-function formatBpsPercentLabel(bps: number): string {
-  const whole = Math.floor(bps / 100);
-  const dec = String(bps % 100).padStart(2, '0');
-  return `${whole},${dec}%`;
 }
 
 export function CheckoutSimulatorPage() {
@@ -547,11 +542,15 @@ export function CheckoutSimulatorPage() {
                       className="grid gap-3 rounded-xl border border-slate-800 bg-slate-900/75 p-3 sm:grid-cols-12 sm:items-end"
                     >
                       <div className="sm:col-span-5">
-                        <label className="mb-1 block text-[11px] text-slate-400">
+                        <label
+                          htmlFor={`split-recipient-${index}`}
+                          className="mb-1 block text-[11px] text-slate-400"
+                        >
                           Conta Recebedora (`RECIPIENT`)
                         </label>
                         {recipientAccounts.length > 0 ? (
                           <select
+                            id={`split-recipient-${index}`}
                             value={row.recipientAccountId}
                             onChange={(e) =>
                               handleUpdateSplitRow(row.rowId, {
@@ -569,6 +568,7 @@ export function CheckoutSimulatorPage() {
                           </select>
                         ) : (
                           <input
+                            id={`split-recipient-${index}`}
                             type="text"
                             value={row.recipientAccountId}
                             onChange={(e) =>
@@ -583,8 +583,14 @@ export function CheckoutSimulatorPage() {
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="mb-1 block text-[11px] text-slate-400">Tipo</label>
+                        <label
+                          htmlFor={`split-type-${index}`}
+                          className="mb-1 block text-[11px] text-slate-400"
+                        >
+                          Tipo
+                        </label>
                         <select
+                          id={`split-type-${index}`}
                           value={row.splitType}
                           onChange={(e) =>
                             handleUpdateSplitRow(row.rowId, {
@@ -599,13 +605,17 @@ export function CheckoutSimulatorPage() {
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="mb-1 block text-[11px] text-slate-400">
+                        <label
+                          htmlFor={`split-value-${index}`}
+                          className="mb-1 block text-[11px] text-slate-400"
+                        >
                           {row.splitType === 'PERCENTAGE'
-                            ? `Basis Points (${formatBpsPercentLabel(preview?.percentageBps ?? 0)})`
+                            ? `Basis Points (${formatBpsPercent(preview?.percentageBps ?? 0)})`
                             : 'Valor Fixo (BRL)'}
                         </label>
                         {row.splitType === 'PERCENTAGE' ? (
                           <input
+                            id={`split-value-${index}`}
                             type="number"
                             min={1}
                             max={10000}
@@ -620,6 +630,7 @@ export function CheckoutSimulatorPage() {
                           />
                         ) : (
                           <input
+                            id={`split-value-${index}`}
                             type="text"
                             inputMode="decimal"
                             value={row.fixedAmountInput}
@@ -787,6 +798,7 @@ export function CheckoutSimulatorPage() {
               <h3 className="text-sm font-semibold text-white">Resultado & Fluxo Distribuído</h3>
               {result && (
                 <span
+                  role="status"
                   className={[
                     'rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase',
                     result.idempotentReplay
