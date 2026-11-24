@@ -55,10 +55,24 @@ public class IdempotencyService {
             Class<T> responseType,
             Supplier<T> action
     ) {
+        return executeScoped(null, merchantScopeId, idempotencyKey, canonicalPayload, successStatus, responseType, action);
+    }
+
+    public <T> IdempotencyExecution<T> executeScoped(
+            String scope,
+            UUID merchantScopeId,
+            String idempotencyKey,
+            Object canonicalPayload,
+            int successStatus,
+            Class<T> responseType,
+            Supplier<T> action
+    ) {
         if (!StringUtils.hasText(idempotencyKey) || idempotencyKey.trim().length() > 128) {
             throw new DomainValidationException("Header Idempotency-Key é obrigatório e deve ter entre 1 e 128 caracteres.");
         }
-        String compositeKey = merchantScopeId + ":" + idempotencyKey.trim();
+        String compositeKey = StringUtils.hasText(scope)
+                ? scope.trim() + ":" + merchantScopeId + ":" + idempotencyKey.trim()
+                : merchantScopeId + ":" + idempotencyKey.trim();
         String requestHash = hashCanonicalPayload(canonicalPayload);
 
         if (store.tryAcquireInProgress(compositeKey, requestHash, ttl)) {
