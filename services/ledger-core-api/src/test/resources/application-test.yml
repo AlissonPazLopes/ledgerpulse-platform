@@ -31,3 +31,14 @@ app:
       enabled: false
   risk-engine:
     mode: stub
+  sse:
+    heartbeat-enabled: false
+  reconciliation:
+    scheduled:
+      enabled: false
+  rate-limit:
+    enabled: true
+    store: memory
+    capacity: 100
+    refill-tokens: 100
+    refill-period-seconds: 60

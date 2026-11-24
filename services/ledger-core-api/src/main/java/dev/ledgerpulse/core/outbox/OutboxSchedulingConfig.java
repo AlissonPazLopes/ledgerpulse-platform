@@ -1,11 +1,11 @@
 package dev.ledgerpulse.core.outbox;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
+/**
+ * Retained for compatibility; @EnableScheduling is configured globally on LedgerCoreApplication
+ * while individual schedulers opt in/out via @ConditionalOnProperty.
+ */
 @Configuration
-@EnableScheduling
-@ConditionalOnProperty(name = "app.outbox.relay.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxSchedulingConfig {
 }
