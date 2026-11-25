@@ -22,6 +22,17 @@ _DECISION_COUNTS: dict[str, int] = {
     "REVIEW": 0,
     "BLOCK": 0,
 }
+_HISTOGRAM_BUCKETS: tuple[tuple[str, float], ...] = (
+    ("0.005", 0.005),
+    ("0.01", 0.01),
+    ("0.025", 0.025),
+    ("0.05", 0.05),
+    ("0.1", 0.1),
+    ("0.25", 0.25),
+    ("0.5", 0.5),
+    ("1.0", 1.0),
+)
+_LATENCY_BUCKET_COUNTS: dict[str, int] = {label: 0 for label, _ in _HISTOGRAM_BUCKETS}
 _LATENCY_SUM_SECONDS = 0.0
 _LATENCY_COUNT = 0
 
@@ -32,6 +43,9 @@ def _record_evaluation_metrics(decision: str, elapsed_seconds: float) -> None:
         _DECISION_COUNTS[decision] = _DECISION_COUNTS.get(decision, 0) + 1
         _LATENCY_SUM_SECONDS += elapsed_seconds
         _LATENCY_COUNT += 1
+        for label, upper_bound in _HISTOGRAM_BUCKETS:
+            if elapsed_seconds <= upper_bound:
+                _LATENCY_BUCKET_COUNTS[label] += 1
 
 
 @router.get("/health", response_model=RiskHealthResponse, tags=["Health"])
@@ -75,6 +89,7 @@ def get_metrics() -> Response:
     bundle = load_model_bundle()
     with _METRICS_LOCK:
         counts = dict(_DECISION_COUNTS)
+        bucket_counts = dict(_LATENCY_BUCKET_COUNTS)
         latency_sum = _LATENCY_SUM_SECONDS
         latency_count = _LATENCY_COUNT
 
@@ -89,8 +104,15 @@ def get_metrics() -> Response:
         lines.append(f'risk_evaluation_total{{decision="{decision}"}} {count}')
 
     lines.extend([
-        "# HELP risk_evaluation_latency_seconds Risk evaluation duration summary",
-        "# TYPE risk_evaluation_latency_seconds summary",
+        "# HELP risk_evaluation_latency_seconds Risk evaluation duration histogram",
+        "# TYPE risk_evaluation_latency_seconds histogram",
+    ])
+    for label, _ in _HISTOGRAM_BUCKETS:
+        lines.append(
+            f'risk_evaluation_latency_seconds_bucket{{le="{label}"}} {bucket_counts[label]}'
+        )
+    lines.extend([
+        f'risk_evaluation_latency_seconds_bucket{{le="+Inf"}} {latency_count}',
         f"risk_evaluation_latency_seconds_sum {latency_sum:.6f}",
         f"risk_evaluation_latency_seconds_count {latency_count}",
     ])
