@@ -8,11 +8,13 @@ import dev.ledgerpulse.webhook.domain.WebhookDeliveryStatus;
 import dev.ledgerpulse.webhook.domain.WebhookEndpoint;
 import dev.ledgerpulse.webhook.domain.WebhookEndpointStatus;
 import dev.ledgerpulse.webhook.messaging.WebhookEventMessage;
+import dev.ledgerpulse.webhook.observability.WebhookDispatcherMetrics;
 import dev.ledgerpulse.webhook.repository.WebhookDeliveryAttemptRepository;
 import dev.ledgerpulse.webhook.repository.WebhookDeliveryRepository;
 import dev.ledgerpulse.webhook.repository.WebhookEndpointRepository;
 import dev.ledgerpulse.webhook.web.InvalidDeliveryStateException;
 import dev.ledgerpulse.webhook.web.ResourceNotFoundException;
+import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,6 +103,7 @@ public class WebhookDeliveryEngine {
     private final HmacSignatureService hmacSignatureService;
     private final TransactionTemplate transactionTemplate;
     private final ObjectMapper objectMapper;
+    private final WebhookDispatcherMetrics metrics;
     private final ExecutorService virtualThreadExecutor;
     private final HttpClient httpClient;
     private final long readTimeoutMs;
@@ -112,6 +115,7 @@ public class WebhookDeliveryEngine {
             HmacSignatureService hmacSignatureService,
             TransactionTemplate transactionTemplate,
             ObjectMapper objectMapper,
+            WebhookDispatcherMetrics metrics,
             @Value("${app.webhook.http.connect-timeout-ms:1500}") long connectTimeoutMs,
             @Value("${app.webhook.http.read-timeout-ms:2000}") long readTimeoutMs
     ) {
@@ -121,6 +125,7 @@ public class WebhookDeliveryEngine {
         this.hmacSignatureService = hmacSignatureService;
         this.transactionTemplate = transactionTemplate;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
         this.readTimeoutMs = Math.max(50L, readTimeoutMs);
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
         this.httpClient = HttpClient.newBuilder()
@@ -349,6 +354,7 @@ public class WebhookDeliveryEngine {
         );
 
         long startNanos = System.nanoTime();
+        Timer.Sample latencySample = metrics.startDeliveryTimer();
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(work.targetUrl()))
@@ -401,6 +407,8 @@ public class WebhookDeliveryEngine {
                     onVirtualThread,
                     attemptedAt
             );
+        } finally {
+            metrics.stopDeliveryTimer(latencySample);
         }
     }
 
@@ -452,6 +460,7 @@ public class WebhookDeliveryEngine {
                     httpResult.attemptedAt()
             );
             deliveryRepository.save(delivery);
+            metrics.recordDeliveryOutcome(delivery.getStatus(), delivery.getEventType());
 
             return new DispatchResult(
                     delivery.getId(),
