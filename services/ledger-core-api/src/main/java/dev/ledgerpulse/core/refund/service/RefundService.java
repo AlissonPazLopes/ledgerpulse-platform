@@ -13,6 +13,7 @@ import dev.ledgerpulse.core.ledger.domain.LedgerTransaction;
 import dev.ledgerpulse.core.ledger.repository.AccountRepository;
 import dev.ledgerpulse.core.ledger.service.LedgerPostingCommand;
 import dev.ledgerpulse.core.ledger.service.LedgerService;
+import dev.ledgerpulse.core.observability.LedgerCoreMetrics;
 import dev.ledgerpulse.core.outbox.OutboxService;
 import dev.ledgerpulse.core.payment.domain.Payment;
 import dev.ledgerpulse.core.payment.domain.PaymentSplit;
@@ -59,6 +60,7 @@ public class RefundService {
     private final RefundCalculator refundCalculator;
     private final TransactionTemplate transactionTemplate;
     private final ObjectMapper objectMapper;
+    private final LedgerCoreMetrics metrics;
 
     public RefundService(
             PaymentRepository paymentRepository,
@@ -70,7 +72,8 @@ public class RefundService {
             IdempotencyService idempotencyService,
             RefundCalculator refundCalculator,
             TransactionTemplate transactionTemplate,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            LedgerCoreMetrics metrics
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentSplitRepository = paymentSplitRepository;
@@ -82,6 +85,7 @@ public class RefundService {
         this.refundCalculator = refundCalculator;
         this.transactionTemplate = transactionTemplate;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     public IdempotencyService.IdempotencyExecution<RefundResponse> createRefund(
@@ -203,6 +207,7 @@ public class RefundService {
         ));
 
         recordRefundOutboxEvent(savedPayment, savedRefund, breakdown, correlationId);
+        metrics.recordRefundProcessed(savedPayment.getStatus());
 
         return new RefundResponse(
                 savedRefund.getId(),

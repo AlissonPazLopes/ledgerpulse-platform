@@ -10,6 +10,7 @@ import dev.ledgerpulse.webhook.domain.WebhookDeliveryAttempt;
 import dev.ledgerpulse.webhook.domain.WebhookDeliveryStatus;
 import dev.ledgerpulse.webhook.domain.WebhookEndpoint;
 import dev.ledgerpulse.webhook.domain.WebhookEndpointStatus;
+import dev.ledgerpulse.webhook.observability.WebhookDispatcherMetrics;
 import dev.ledgerpulse.webhook.repository.WebhookDeliveryAttemptRepository;
 import dev.ledgerpulse.webhook.repository.WebhookDeliveryRepository;
 import dev.ledgerpulse.webhook.repository.WebhookEndpointRepository;
@@ -41,17 +42,20 @@ public class WebhookManagementService {
     private final WebhookDeliveryRepository deliveryRepository;
     private final WebhookDeliveryAttemptRepository attemptRepository;
     private final WebhookDeliveryEngine deliveryEngine;
+    private final WebhookDispatcherMetrics metrics;
 
     public WebhookManagementService(
             WebhookEndpointRepository endpointRepository,
             WebhookDeliveryRepository deliveryRepository,
             WebhookDeliveryAttemptRepository attemptRepository,
-            WebhookDeliveryEngine deliveryEngine
+            WebhookDeliveryEngine deliveryEngine,
+            WebhookDispatcherMetrics metrics
     ) {
         this.endpointRepository = endpointRepository;
         this.deliveryRepository = deliveryRepository;
         this.attemptRepository = attemptRepository;
         this.deliveryEngine = deliveryEngine;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -151,6 +155,7 @@ public class WebhookManagementService {
 
     public DlqReplayResponse replayDlqDelivery(UUID deliveryId) {
         WebhookDeliveryEngine.DlqReplayResult result = deliveryEngine.replayDlqDelivery(deliveryId);
+        metrics.recordDlqReplay(result.status());
         return new DlqReplayResponse(
                 result.deliveryId(),
                 result.eventId(),

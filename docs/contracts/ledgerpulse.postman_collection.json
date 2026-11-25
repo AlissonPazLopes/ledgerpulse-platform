@@ -1,0 +1,1310 @@
+{
+  "info": {
+    "_postman_id": "a7f3c9d0-1b2c-4d3e-9f4a-202611250001",
+    "name": "LedgerPulse Platform API v1.0.0",
+    "description": "Coleção oficial v1.0.0 da plataforma LedgerPulse (ledger-core-api :8080, risk-engine-ai :8001, webhook-dispatcher :8082 e Prometheus/Actuator). Valores monetários em centavos inteiros (amountCents / amount_cents).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "coreUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "riskUrl",
+      "value": "http://localhost:8001",
+      "type": "string"
+    },
+    {
+      "key": "webhookUrl",
+      "value": "http://localhost:8082",
+      "type": "string"
+    },
+    {
+      "key": "prometheusUrl",
+      "value": "http://localhost:9090",
+      "type": "string"
+    },
+    {
+      "key": "grafanaUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "jwtToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "lp_test_merchant_key_v1",
+      "type": "string"
+    },
+    {
+      "key": "merchantId",
+      "value": "7b92c3e0-1f42-4876-a1e2-901283471234",
+      "type": "string"
+    },
+    {
+      "key": "recipientAccountId",
+      "value": "22222222-2222-4222-8222-222222222222",
+      "type": "string"
+    },
+    {
+      "key": "paymentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ledgerTransactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deliveryId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 · Health & Auth (JWT + RBAC)",
+      "item": [
+        {
+          "name": "GET Health (ledger-core-api)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/health",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Auth Login (Admin JWT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login retorna 200 OK com accessToken', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('jwtToken', json.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ledgerpulse.dev\",\n  \"password\": \"LedgerPulse@2026\"\n}"
+            },
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/auth/login",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Auth Me (JWT)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/auth/me",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Admin Status (RBAC ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/admin/status",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Merchants Me (X-API-Key)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/merchants/me",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "merchants",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 · Accounts & Double-Entry Ledger",
+      "item": [
+        {
+          "name": "POST Create Account (ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"accountType\": \"RECIPIENT\",\n  \"holderName\": \"Partner Seller Beta\",\n  \"currency\": \"BRL\"\n}"
+            },
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/accounts",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/accounts?page=0&size=20",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Account By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/accounts/{{recipientAccountId}}",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "{{recipientAccountId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Ledger Transactions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.items && json.items.length > 0 && !pm.collectionVariables.get('ledgerTransactionId')) {",
+                  "        pm.collectionVariables.set('ledgerTransactionId', json.items[0].id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/ledger/transactions?page=0&size=20",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ledger",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Ledger Transaction By ID (Double-Entry Proof)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/ledger/transactions/{{ledgerTransactionId}}",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ledger",
+                "transactions",
+                "{{ledgerTransactionId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 · Payments, Split & Refunds",
+      "item": [
+        {
+          "name": "POST Create Payment (X-API-Key + Idempotency + Split)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Create Payment retorna 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a('string');",
+                  "    pm.collectionVariables.set('paymentId', json.id);",
+                  "    if (json.ledgerTransactionId) {",
+                  "        pm.collectionVariables.set('ledgerTransactionId', json.ledgerTransactionId);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"payerId\": \"payer-98765\",\n  \"amountCents\": 15000,\n  \"currency\": \"BRL\",\n  \"paymentMethod\": \"CARD\",\n  \"description\": \"Pedido #4021 via Postman\",\n  \"splits\": [\n    {\n      \"recipientAccountId\": \"{{recipientAccountId}}\",\n      \"splitType\": \"PERCENTAGE\",\n      \"percentageBps\": 2000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/payments",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Payments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/payments?page=0&size=20",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Payment By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/payments/{{paymentId}}",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "{{paymentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Refund Payment (Partial 5000 cents)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountCents\": 5000,\n  \"reason\": \"Estorno parcial solicitado pelo comprador\"\n}"
+            },
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/payments/{{paymentId}}/refunds",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "{{paymentId}}",
+                "refunds"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Payment Refunds",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/payments/{{paymentId}}/refunds",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "{{paymentId}}",
+                "refunds"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Fraud Review (MANUAL_REVIEW)",
+      "item": [
+        {
+          "name": "GET List Manual Risk Reviews",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.items && json.items.length > 0) {",
+                  "        pm.collectionVariables.set('paymentId', json.items[0].paymentId);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/risk/reviews?page=0&size=20",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "reviews"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Submit Risk Review Decision",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"APPROVE\",\n  \"justification\": \"Titular confirmou a operacao via contato telefonico antifraude.\"\n}"
+            },
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/risk/reviews/{{paymentId}}/decision",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "risk",
+                "reviews",
+                "{{paymentId}}",
+                "decision"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 · Dashboard, SSE & Reconciliation",
+      "item": [
+        {
+          "name": "GET Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/dashboard/summary",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET SSE Events Stream (text/event-stream)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/stream/events",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "stream",
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Run Reconciliation (ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/reconciliation/run",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reconciliation",
+                "run"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Reconciliation Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/reconciliation/reports?page=0&size=20",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reconciliation",
+                "reports"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Export Reconciliation CSV",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "text/csv"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{coreUrl}}/api/v1/reconciliation/export.csv",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reconciliation",
+                "export.csv"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 · Risk Engine AI (Python :8001)",
+      "item": [
+        {
+          "name": "GET Risk Engine Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{riskUrl}}/health",
+              "host": [
+                "{{riskUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Risk Model Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{riskUrl}}/v1/risk/model-info",
+              "host": [
+                "{{riskUrl}}"
+              ],
+              "path": [
+                "v1",
+                "risk",
+                "model-info"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Evaluate Risk (snake_case)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_id\": \"e1d2c3b4-5a6b-4c7d-8e9f-001122334455\",\n  \"merchant_id\": \"{{merchantId}}\",\n  \"payer_id\": \"payer-98765\",\n  \"amount_cents\": 15000,\n  \"payment_method\": \"CARD\",\n  \"ip_country\": \"BR\",\n  \"velocity_1h\": 1,\n  \"hour_of_day\": 14,\n  \"account_age_days\": 180\n}"
+            },
+            "url": {
+              "raw": "{{riskUrl}}/v1/risk/evaluate",
+              "host": [
+                "{{riskUrl}}"
+              ],
+              "path": [
+                "v1",
+                "risk",
+                "evaluate"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Risk Engine Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{riskUrl}}/metrics",
+              "host": [
+                "{{riskUrl}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 · Webhooks, Sink & DLQ Replay (:8082)",
+      "item": [
+        {
+          "name": "GET Health (webhook-dispatcher)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/health",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Create Webhook Endpoint (ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"targetUrl\": \"http://localhost:8082/api/v1/sink/test\",\n  \"secret\": \"whsec_ledgerpulse_dev_secret_2026\",\n  \"description\": \"Merchant Webhook Sink Local\"\n}"
+            },
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/webhooks/endpoints",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "endpoints"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Webhook Endpoints",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/webhooks/endpoints?page=0&size=20",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "endpoints"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List Webhook Deliveries",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.items && json.items.length > 0) {",
+                  "        var dlqItem = json.items.find(function (item) { return item.status === 'DLQ'; });",
+                  "        pm.collectionVariables.set('deliveryId', (dlqItem || json.items[0]).id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/webhooks/deliveries?page=0&size=20",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "deliveries"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Sink Mode",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/sink/mode",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sink",
+                "mode"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT Sink Mode (OK_200 | FAIL_500 | TIMEOUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mode\": \"OK_200\"\n}"
+            },
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/sink/mode",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sink",
+                "mode"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Sink Test (Public Dev Receiver)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-LedgerPulse-Event-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-LedgerPulse-Signature",
+                "value": "t=1764000000,v1=sample_hmac_hex_signature"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"c7a615f1-82b3-4e11-9c2a-5d2d1b63e701\",\n  \"eventType\": \"payment.settled\",\n  \"schemaVersion\": \"1.0\",\n  \"occurredAt\": \"2026-11-25T12:00:00Z\",\n  \"correlationId\": \"4f3c9f62-8b9a-4f3b-9d1a-0192837465ab\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"payload\": {\n    \"paymentId\": \"{{paymentId}}\",\n    \"amountCents\": 15000,\n    \"status\": \"SETTLED\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/sink/test",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sink",
+                "test"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Replay DLQ Delivery",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{webhookUrl}}/api/v1/webhooks/dlq/{{deliveryId}}/replay",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "dlq",
+                "{{deliveryId}}",
+                "replay"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 · Observability (Prometheus & Actuator)",
+      "item": [
+        {
+          "name": "GET Core API Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{coreUrl}}/actuator/prometheus",
+              "host": [
+                "{{coreUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "prometheus"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Risk Engine AI Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{riskUrl}}/metrics",
+              "host": [
+                "{{riskUrl}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Webhook Dispatcher Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{webhookUrl}}/actuator/prometheus",
+              "host": [
+                "{{webhookUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "prometheus"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

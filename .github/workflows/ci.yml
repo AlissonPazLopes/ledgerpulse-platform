@@ -29,6 +29,14 @@ jobs:
       - name: Self-test E2E script
         run: python3 infra/scripts/e2e_payment_dlq_flow.py --self-test
 
+      - name: Self-test Chaos & Load script
+        run: python3 infra/scripts/chaos_load_test.py --self-test
+
+      - name: Validate Grafana dashboard and Postman collection JSON
+        run: |
+          python3 -c "import json; json.load(open('infra/grafana/dashboards/ledgerpulse-overview.json', encoding='utf-8'))"
+          python3 -c "import json; json.load(open('docs/contracts/ledgerpulse.postman_collection.json', encoding='utf-8'))"
+
   ledger-core-api:
     name: Build & Test ledger-core-api (Java 21)
     runs-on: ubuntu-latest
