@@ -6,6 +6,7 @@ import dev.ledgerpulse.core.idempotency.IdempotencyService;
 import dev.ledgerpulse.core.ledger.domain.Account;
 import dev.ledgerpulse.core.ledger.domain.LedgerTransaction;
 import dev.ledgerpulse.core.ledger.repository.AccountRepository;
+import dev.ledgerpulse.core.observability.LedgerCoreMetrics;
 import dev.ledgerpulse.core.payment.api.CreatePaymentRequest;
 import dev.ledgerpulse.core.payment.api.PaymentResponse;
 import dev.ledgerpulse.core.payment.api.PaymentSplitRequest;
@@ -51,6 +52,7 @@ public class PaymentService {
     private final SplitCalculator splitCalculator;
     private final IdempotencyService idempotencyService;
     private final TransactionTemplate transactionTemplate;
+    private final LedgerCoreMetrics metrics;
 
     public PaymentService(
             MerchantRepository merchantRepository,
@@ -61,7 +63,8 @@ public class PaymentService {
             RiskEvaluator riskEvaluator,
             SplitCalculator splitCalculator,
             IdempotencyService idempotencyService,
-            TransactionTemplate transactionTemplate
+            TransactionTemplate transactionTemplate,
+            LedgerCoreMetrics metrics
     ) {
         this.merchantRepository = merchantRepository;
         this.accountRepository = accountRepository;
@@ -72,6 +75,7 @@ public class PaymentService {
         this.splitCalculator = splitCalculator;
         this.idempotencyService = idempotencyService;
         this.transactionTemplate = transactionTemplate;
+        this.metrics = metrics;
     }
 
     public IdempotencyService.IdempotencyExecution<PaymentResponse> createPayment(
@@ -203,13 +207,15 @@ public class PaymentService {
         );
         payment.transitionTo(PaymentStatus.RISK_ANALYSIS);
 
-        RiskEvaluator.RiskAssessment risk = riskEvaluator.evaluate(new RiskEvaluator.RiskEvaluationInput(
-                paymentId,
-                merchant.getId(),
-                request.payerId(),
-                request.amountCents(),
-                request.paymentMethod()
-        ));
+        RiskEvaluator.RiskAssessment risk = metrics.recordRiskEvaluation(() ->
+                riskEvaluator.evaluate(new RiskEvaluator.RiskEvaluationInput(
+                        paymentId,
+                        merchant.getId(),
+                        request.payerId(),
+                        request.amountCents(),
+                        request.paymentMethod()
+                ))
+        );
         payment.recordRiskAssessment(
                 risk.riskScore(),
                 risk.decision(),
@@ -248,6 +254,7 @@ public class PaymentService {
                 );
 
         settlementHelper.recordPaymentOutboxEvent(savedPayment, risk.reasonCodes(), savedPayment.getCorrelationId());
+        metrics.recordPaymentProcessed(savedPayment.getStatus(), savedPayment.getPaymentMethod(), risk.decision());
         return toResponse(savedPayment, savedSplits);
     }
 

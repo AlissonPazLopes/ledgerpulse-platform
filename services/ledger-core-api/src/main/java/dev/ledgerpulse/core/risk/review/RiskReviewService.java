@@ -1,6 +1,7 @@
 package dev.ledgerpulse.core.risk.review;
 
 import dev.ledgerpulse.core.ledger.domain.LedgerTransaction;
+import dev.ledgerpulse.core.observability.LedgerCoreMetrics;
 import dev.ledgerpulse.core.outbox.OutboxService;
 import dev.ledgerpulse.core.payment.domain.Payment;
 import dev.ledgerpulse.core.payment.domain.PaymentSplit;
@@ -36,19 +37,22 @@ public class RiskReviewService {
     private final RiskReviewDecisionRepository decisionRepository;
     private final PaymentSettlementHelper settlementHelper;
     private final OutboxService outboxService;
+    private final LedgerCoreMetrics metrics;
 
     public RiskReviewService(
             PaymentRepository paymentRepository,
             PaymentSplitRepository paymentSplitRepository,
             RiskReviewDecisionRepository decisionRepository,
             PaymentSettlementHelper settlementHelper,
-            OutboxService outboxService
+            OutboxService outboxService,
+            LedgerCoreMetrics metrics
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentSplitRepository = paymentSplitRepository;
         this.decisionRepository = decisionRepository;
         this.settlementHelper = settlementHelper;
         this.outboxService = outboxService;
+        this.metrics = metrics;
     }
 
     @Transactional(readOnly = true)
@@ -137,6 +141,11 @@ public class RiskReviewService {
         ));
 
         recordRiskFeedbackOutbox(savedPayment, decisionRecord, reasonCodes, correlationId);
+        metrics.recordPaymentProcessed(
+                savedPayment.getStatus(),
+                savedPayment.getPaymentMethod(),
+                savedPayment.getRiskDecision()
+        );
 
         return new RiskReviewDecisionResponse(
                 decisionRecord.getId(),
